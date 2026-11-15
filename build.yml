@@ -1,0 +1,1042 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Create project files
+        run: |
+          mkdir -p app
+          cat > app/build.gradle.kts <<'KOTLIN_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.example.island"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.example.island"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'KOTLIN_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.MAIN" />
+                      <category android:name="android.intent.category.LAUNCHER" />
+                  </intent>
+              </queries>
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@android:drawable/sym_def_app_icon"
+                  android:label="Custom Island"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".IslandAccessibilityService"
+                      android:exported="true"
+                      android:label="Custom Island"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.accessibilityservice"
+                          android:resource="@xml/accessibility_config" />
+                  </service>
+
+                  <service
+                      android:name=".NotifListener"
+                      android:exported="true"
+                      android:label="Custom Island LED"
+                      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.service.notification.NotificationListenerService" />
+                      </intent-filter>
+                  </service>
+              </application>
+          </manifest>
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/IslandAccessibilityService.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.accessibilityservice.AccessibilityService
+          import android.content.Intent
+          import android.content.res.Configuration
+          import android.view.WindowManager
+          import android.view.accessibility.AccessibilityEvent
+
+          /**
+           * Héberge l'île. Un service d'accessibilité peut afficher une fenêtre
+           * au-dessus de tout (y compris le tiroir de notifications) et reste
+           * actif en permanence.
+           */
+          class IslandAccessibilityService : AccessibilityService() {
+
+              companion object {
+                  @Volatile
+                  var instance: IslandAccessibilityService? = null
+              }
+
+              private var controller: IslandController? = null
+
+              override fun onServiceConnected() {
+                  super.onServiceConnected()
+                  instance = this
+                  val c = IslandController(this, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+                  controller = c
+                  IslandBus.onChange = { c.refreshLed() }
+                  c.start()
+              }
+
+              /** Applique les réglages en direct, sans recréer la fenêtre */
+              fun reload() {
+                  controller?.applyLive()
+              }
+
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+
+              override fun onInterrupt() {}
+
+              override fun onConfigurationChanged(newConfig: Configuration) {
+                  super.onConfigurationChanged(newConfig)
+                  controller?.applyLive()
+              }
+
+              override fun onUnbind(intent: Intent?): Boolean {
+                  IslandBus.onChange = null
+                  controller?.stop()
+                  controller = null
+                  instance = null
+                  return super.onUnbind(intent)
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/IslandBus.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.os.Handler
+          import android.os.Looper
+
+          /** Pont entre l'écoute des notifications et l'île */
+          object IslandBus {
+              @Volatile
+              var ledColor: Int = 0 // 0 = LED éteinte
+
+              @Volatile
+              var count: Int = 0
+
+              var onChange: (() -> Unit)? = null
+              private val main = Handler(Looper.getMainLooper())
+
+              fun update(color: Int, count: Int) {
+                  ledColor = color
+                  this.count = count
+                  main.post { onChange?.invoke() }
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/IslandController.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.animation.ObjectAnimator
+          import android.animation.ValueAnimator
+          import android.content.Context
+          import android.graphics.PixelFormat
+          import android.graphics.drawable.GradientDrawable
+          import android.os.Build
+          import android.view.Gravity
+          import android.view.View
+          import android.view.ViewGroup
+          import android.view.WindowManager
+          import android.widget.FrameLayout
+
+          /** Forme d'encoche accrochée en haut de l'écran, avec une LED au centre */
+          class IslandController(private val ctx: Context, private val windowType: Int) {
+
+              private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+              private val prefs = Prefs(ctx)
+              private val bg = IslandDrawable()
+              private val ledView = View(ctx)
+              private var ledAnim: ObjectAnimator? = null
+              private var root: FrameLayout? = null
+              private var lp: WindowManager.LayoutParams? = null
+
+              private fun dp(v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
+
+              fun start() {
+                  stop()
+                  (ledView.parent as? ViewGroup)?.removeView(ledView)
+                  val v = FrameLayout(ctx).apply { background = bg }
+                  v.addView(ledView, FrameLayout.LayoutParams(dp(10), dp(10), Gravity.CENTER))
+
+                  val params = WindowManager.LayoutParams(
+                      dp(prefs.width),
+                      dp(prefs.height),
+                      windowType,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                          WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                          WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                          WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                      PixelFormat.TRANSLUCENT
+                  ).apply {
+                      gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                      if (Build.VERSION.SDK_INT >= 30) {
+                          layoutInDisplayCutoutMode =
+                              WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                      } else if (Build.VERSION.SDK_INT >= 28) {
+                          layoutInDisplayCutoutMode =
+                              WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                      }
+                  }
+                  root = v
+                  lp = params
+                  wm.addView(v, params)
+                  applyLive()
+              }
+
+              fun stop() {
+                  ledAnim?.cancel()
+                  root?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+                  root = null
+              }
+
+              /** Relit tous les réglages et met la fenêtre à jour immédiatement */
+              fun applyLive() {
+                  val v = root ?: return
+                  val params = lp ?: return
+
+                  bg.set(dp(prefs.flare).toFloat(), dp(prefs.bottomRadius).toFloat(), prefs.bgColor)
+                  v.setPadding(0, dp(prefs.flare), 0, 0)
+
+                  val ledLp = ledView.layoutParams as FrameLayout.LayoutParams
+                  ledLp.width = dp(prefs.ledWidth)
+                  ledLp.height = dp(prefs.ledHeight)
+                  ledLp.gravity = Gravity.CENTER
+                  ledView.layoutParams = ledLp
+                  ledView.translationX = dp(prefs.ledX).toFloat()
+                  ledView.translationY = dp(prefs.ledY).toFloat()
+
+                  params.width = dp(prefs.width)
+                  params.height = dp(prefs.height)
+                  params.x = dp(prefs.xOffset)
+                  params.y = 0
+                  try { wm.updateViewLayout(v, params) } catch (_: Exception) {}
+
+                  refreshLed()
+              }
+
+              fun refreshLed() {
+                  val v = root ?: return
+                  val c = IslandBus.ledColor
+                  val on = prefs.ledEnabled && c != 0
+
+                  v.visibility = if (prefs.showOnlyWithLed && !on) View.INVISIBLE else View.VISIBLE
+
+                  if (on) {
+                      ledView.visibility = View.VISIBLE
+                      ledView.background = GradientDrawable().apply {
+                          shape = GradientDrawable.RECTANGLE
+                          cornerRadius = dp(prefs.ledRadius).toFloat()
+                          setColor(c)
+                      }
+                      if (prefs.ledPulse) {
+                          if (ledAnim == null) {
+                              ledAnim = ObjectAnimator.ofFloat(ledView, "alpha", 1f, 0.2f).apply {
+                                  duration = 700
+                                  repeatMode = ValueAnimator.REVERSE
+                                  repeatCount = ValueAnimator.INFINITE
+                              }
+                          }
+                          if (ledAnim?.isRunning != true) ledAnim?.start()
+                      } else {
+                          ledAnim?.cancel()
+                          ledView.alpha = 1f
+                      }
+                  } else {
+                      ledAnim?.cancel()
+                      ledView.alpha = 1f
+                      ledView.visibility = View.INVISIBLE
+                  }
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/IslandDrawable.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.graphics.Canvas
+          import android.graphics.ColorFilter
+          import android.graphics.Paint
+          import android.graphics.Path
+          import android.graphics.PixelFormat
+          import android.graphics.RectF
+          import android.graphics.drawable.Drawable
+
+          /**
+           * Forme d'encoche : accrochée au bord haut de l'écran, avec des raccords
+           * concaves en haut (évasement) et un bas arrondi.
+           */
+          class IslandDrawable : Drawable() {
+
+              private var flare = 0f
+              private var radius = 0f
+              private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val path = Path()
+
+              fun set(flare: Float, radius: Float, fill: Int) {
+                  this.flare = flare
+                  this.radius = radius
+                  paint.color = fill
+                  invalidateSelf()
+              }
+
+              override fun draw(canvas: Canvas) {
+                  val w = bounds.width().toFloat()
+                  val h = bounds.height().toFloat()
+                  if (w <= 0f || h <= 0f) return
+                  canvas.save()
+                  canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
+
+                  val f = minOf(flare, w / 4f, h / 2f).coerceAtLeast(0f)
+                  val bodyW = w - 2f * f
+                  val r = minOf(radius, bodyW / 2f, h - f).coerceAtLeast(0f)
+
+                  path.reset()
+                  path.moveTo(0f, 0f)
+                  path.lineTo(w, 0f)
+                  if (f > 0.5f) path.arcTo(RectF(w - f, 0f, w + f, 2f * f), 270f, -90f)
+                  if (r > 0.5f) {
+                      path.lineTo(w - f, h - r)
+                      path.arcTo(RectF(w - f - 2f * r, h - 2f * r, w - f, h), 0f, 90f)
+                      path.lineTo(f + r, h)
+                      path.arcTo(RectF(f, h - 2f * r, f + 2f * r, h), 90f, 90f)
+                  } else {
+                      path.lineTo(w - f, h)
+                      path.lineTo(f, h)
+                  }
+                  path.lineTo(f, f)
+                  if (f > 0.5f) path.arcTo(RectF(-f, 0f, f, 2f * f), 0f, -90f)
+                  path.close()
+
+                  canvas.drawPath(path, paint)
+                  canvas.restore()
+              }
+
+              override fun setAlpha(alpha: Int) {
+                  paint.alpha = alpha
+              }
+
+              override fun setColorFilter(colorFilter: ColorFilter?) {
+                  paint.colorFilter = colorFilter
+              }
+
+              @Suppress("OVERRIDE_DEPRECATION")
+              override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/MainActivity.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.app.Activity
+          import android.app.AlertDialog
+          import android.content.Intent
+          import android.graphics.Color
+          import android.graphics.drawable.GradientDrawable
+          import android.os.Bundle
+          import android.os.Handler
+          import android.os.Looper
+          import android.provider.Settings
+          import android.view.Gravity
+          import android.view.View
+          import android.view.ViewGroup
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.RadioButton
+          import android.widget.RadioGroup
+          import android.widget.ScrollView
+          import android.widget.SeekBar
+          import android.widget.Switch
+          import android.widget.TextView
+
+          class MainActivity : Activity() {
+
+              private lateinit var prefs: Prefs
+              private lateinit var status: TextView
+              private lateinit var appList: LinearLayout
+              private val handler = Handler(Looper.getMainLooper())
+              private var preview = true
+              private var inForeground = false
+
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+              /** Applique les réglages à l'île, en direct */
+              private fun reloadIsland() {
+                  IslandAccessibilityService.instance?.reload()
+              }
+
+              private fun recomputeLed() {
+                  NotifListener.instance?.recompute()
+              }
+
+              private fun restoreLed() {
+                  if (preview && inForeground) {
+                      IslandBus.update(Color.GREEN, 1)
+                      return
+                  }
+                  val l = NotifListener.instance
+                  if (l != null) l.recompute() else IslandBus.update(0, 0)
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  prefs = Prefs(this)
+
+                  val col = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(20), dp(40), dp(20), dp(40))
+                  }
+
+                  col.addView(TextView(this).apply {
+                      text = "Custom Island"
+                      textSize = 26f
+                  })
+                  status = TextView(this).apply { setPadding(0, dp(12), 0, 0) }
+                  col.addView(status)
+
+                  col.addView(button("1. Activer l'île (service d'accessibilité)") {
+                      startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                  })
+                  col.addView(button("2. Activer l'accès aux notifications (LED)") {
+                      startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                  })
+
+                  // ----- Forme : réglage en direct -----
+                  col.addView(section("Forme (tu vois le résultat en direct)"))
+                  col.addView(seek("Largeur", 20, 200, { prefs.width }, { prefs.width = it }))
+                  col.addView(seek("Hauteur", 16, 80, { prefs.height }, { prefs.height = it }))
+                  col.addView(seek("Évasement du haut", 0, 30, { prefs.flare }, { prefs.flare = it }))
+                  col.addView(seek("Arrondi du bas", 0, 60, { prefs.bottomRadius }, { prefs.bottomRadius = it }))
+                  col.addView(seek("Position horizontale (0 = centre)", -200, 200, { prefs.xOffset }, { prefs.xOffset = it }))
+
+                  col.addView(section("Couleur de la forme"))
+                  val colors = listOf(
+                      0xFF000000.toInt() to "Noir",
+                      0xFF1C1C1E.toInt() to "Gris foncé",
+                      0xFF0A1A3A.toInt() to "Bleu nuit",
+                      0xFF3B1F6B.toInt() to "Violet",
+                      0xFFFFFFFF.toInt() to "Blanc"
+                  )
+                  col.addView(radios(colors.map { it.first.toString() to it.second }, prefs.bgColor.toString()) {
+                      prefs.bgColor = it.toInt()
+                  })
+                  col.addView(switch("Cacher la forme quand il n'y a pas de notif", prefs.showOnlyWithLed) {
+                      prefs.showOnlyWithLed = it; reloadIsland()
+                  })
+
+                  // ----- LED -----
+                  col.addView(section("LED"))
+                  col.addView(switch("LED activée", prefs.ledEnabled) {
+                      prefs.ledEnabled = it; recomputeLed(); reloadIsland()
+                  })
+                  col.addView(switch("LED qui pulse", prefs.ledPulse) { prefs.ledPulse = it; reloadIsland() })
+                  col.addView(switch("Aperçu de la LED pendant les réglages", preview) {
+                      preview = it; restoreLed()
+                  })
+                  col.addView(seek("LED : largeur", 2, 60, { prefs.ledWidth }, { prefs.ledWidth = it }))
+                  col.addView(seek("LED : hauteur", 2, 60, { prefs.ledHeight }, { prefs.ledHeight = it }))
+                  col.addView(seek("LED : arrondi", 0, 30, { prefs.ledRadius }, { prefs.ledRadius = it }))
+                  col.addView(seek("LED : position horizontale (0 = centre)", -100, 100, { prefs.ledX }, { prefs.ledX = it }))
+                  col.addView(seek("LED : position verticale (0 = centre)", -50, 50, { prefs.ledY }, { prefs.ledY = it }))
+                  col.addView(button("Tester la LED (6 s)") {
+                      IslandBus.update(Color.GREEN, 1)
+                      handler.postDelayed({ restoreLed() }, 6000)
+                  })
+
+                  // ----- Couleur par appli -----
+                  col.addView(section("Couleur de la LED selon l'appli (touche une ligne pour changer)"))
+                  appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  col.addView(appList)
+                  col.addView(button("+ Ajouter une appli") { addApp() })
+
+                  setContentView(ScrollView(this).apply { addView(col) })
+              }
+
+              override fun onPause() {
+                  super.onPause()
+                  inForeground = false
+                  restoreLed()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  inForeground = true
+                  restoreLed()
+                  val acc = IslandAccessibilityService.instance != null
+                  val notif = NotifListener.instance != null
+                  status.text = "Île : " + (if (acc) "active ✔" else "inactive ✘") +
+                      "\nLED notifications : " + (if (notif) "active ✔" else "inactive ✘")
+                  refreshApps()
+              }
+
+              // ---------- Liste des applis et couleurs ----------
+
+              private fun appLabel(pkg: String): String = try {
+                  packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+              } catch (_: Exception) {
+                  pkg
+              }
+
+              private fun refreshApps() {
+                  appList.removeAllViews()
+                  val def = prefs.ledDefaultColor
+                  appList.addView(row("Toutes les autres applis", "sans couleur définie", def) {
+                      pickColor("Autres applis", def, { c ->
+                          prefs.ledDefaultColor = c
+                          refreshApps()
+                          recomputeLed()
+                      }, null)
+                  })
+                  val rules = prefs.rules()
+                  val pkgs = (rules.keys + prefs.seenPackages)
+                      .distinct()
+                      .map { appLabel(it) to it }
+                      .sortedBy { it.first.lowercase() }
+                  pkgs.forEach { (label, pkg) ->
+                      val c = rules[pkg]
+                      appList.addView(
+                          row(label, if (c == null) "pas de couleur définie" else pkg, c ?: prefs.ledDefaultColor) {
+                              openPicker(pkg, label)
+                          }
+                      )
+                  }
+              }
+
+              private fun openPicker(pkg: String, label: String) {
+                  val has = prefs.rules().containsKey(pkg)
+                  pickColor(
+                      label,
+                      prefs.rules()[pkg] ?: Color.WHITE,
+                      { c ->
+                          prefs.setRule(pkg, c)
+                          refreshApps()
+                          recomputeLed()
+                      },
+                      if (has) ({
+                          prefs.removeRule(pkg)
+                          refreshApps()
+                          recomputeLed()
+                      }) else null
+                  )
+              }
+
+              private fun addApp() {
+                  val pm = packageManager
+                  val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                  val apps = pm.queryIntentActivities(intent, 0)
+                      .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+                      .distinctBy { it.second }
+                      .sortedBy { it.first.lowercase() }
+                  AlertDialog.Builder(this)
+                      .setTitle("Choisir une appli")
+                      .setItems(apps.map { it.first }.toTypedArray()) { _, i ->
+                          openPicker(apps[i].second, apps[i].first)
+                      }
+                      .show()
+              }
+
+              /** Sélecteur de couleur : la LED de l'île s'allume en direct pendant le choix */
+              private fun pickColor(title: String, current: Int, onOk: (Int) -> Unit, onRemove: (() -> Unit)?) {
+                  var color = if (current == 0) Color.WHITE else current
+                  val box = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(20), dp(8), dp(20), 0)
+                  }
+                  val preview = View(this)
+                  preview.setBackgroundColor(color)
+                  box.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
+
+                  fun choose(c: Int) {
+                      color = c
+                      preview.setBackgroundColor(c)
+                      IslandBus.update(c, 1)
+                  }
+
+                  val presets = listOf(
+                      "#25D366", "#2AABEE", "#EA4335", "#4285F4", "#FF3B30", "#E1306C",
+                      "#FFC107", "#FF9800", "#9C27B0", "#00E5FF", "#00FF00", "#FFFFFF"
+                  )
+                  presets.chunked(6).forEach { chunk ->
+                      val r = LinearLayout(this).apply {
+                          orientation = LinearLayout.HORIZONTAL
+                          setPadding(0, dp(8), 0, 0)
+                      }
+                      chunk.forEach { hex ->
+                          val c = Color.parseColor(hex)
+                          val sw = View(this)
+                          sw.background = GradientDrawable().apply {
+                              shape = GradientDrawable.OVAL
+                              setColor(c)
+                              setStroke(dp(1), Color.GRAY)
+                          }
+                          sw.setOnClickListener { choose(c) }
+                          r.addView(sw, LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                              setMargins(dp(3), 0, dp(3), 0)
+                          })
+                      }
+                      box.addView(r)
+                  }
+
+                  box.addView(TextView(this).apply {
+                      text = "Couleur libre"
+                      setPadding(0, dp(14), 0, 0)
+                  })
+                  val hue = SeekBar(this)
+                  hue.max = 360
+                  hue.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                      override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                          if (fromUser) choose(Color.HSVToColor(floatArrayOf(p.toFloat(), 1f, 1f)))
+                      }
+                      override fun onStartTrackingTouch(s: SeekBar?) {}
+                      override fun onStopTrackingTouch(s: SeekBar?) {}
+                  })
+                  box.addView(hue)
+
+                  val mute = Switch(this)
+                  mute.text = "Pas de LED"
+                  mute.isChecked = current == 0
+                  mute.setPadding(0, dp(14), 0, dp(8))
+                  box.addView(mute)
+
+                  choose(color)
+
+                  val b = AlertDialog.Builder(this)
+                      .setTitle(title)
+                      .setView(box)
+                      .setPositiveButton("OK") { _, _ -> onOk(if (mute.isChecked) 0 else color) }
+                      .setNegativeButton("Annuler", null)
+                  if (onRemove != null) b.setNeutralButton("Supprimer") { _, _ -> onRemove() }
+                  b.setOnDismissListener { restoreLed() }
+                  b.show()
+              }
+
+              // ---------- Petits helpers d'UI ----------
+
+              private fun row(title: String, sub: String, color: Int, onClick: () -> Unit): LinearLayout {
+                  val r = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      setPadding(0, dp(8), 0, dp(8))
+                      setOnClickListener { onClick() }
+                  }
+                  val sw = TextView(this).apply {
+                      gravity = Gravity.CENTER
+                      text = if (color == 0) "✕" else ""
+                      background = GradientDrawable().apply {
+                          shape = GradientDrawable.OVAL
+                          setColor(if (color == 0) Color.LTGRAY else color)
+                          setStroke(dp(1), Color.GRAY)
+                      }
+                  }
+                  val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  t.addView(TextView(this).apply {
+                      text = title
+                      textSize = 16f
+                  })
+                  t.addView(TextView(this).apply {
+                      text = sub
+                      textSize = 11f
+                      setTextColor(Color.GRAY)
+                  })
+                  r.addView(sw, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(14) })
+                  r.addView(t)
+                  return r
+              }
+
+              private fun section(t: String) = TextView(this).apply {
+                  text = t
+                  textSize = 15f
+                  setPadding(0, dp(24), 0, dp(6))
+              }
+
+              private fun button(t: String, onClick: () -> Unit) = Button(this).apply {
+                  text = t
+                  isAllCaps = false
+                  layoutParams = LinearLayout.LayoutParams(
+                      ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                  ).apply { topMargin = dp(10) }
+                  setOnClickListener { onClick() }
+              }
+
+              private fun switch(t: String, checked: Boolean, onChange: (Boolean) -> Unit) = Switch(this).apply {
+                  text = t
+                  isChecked = checked
+                  setPadding(0, dp(8), 0, dp(8))
+                  setOnCheckedChangeListener { _, c -> onChange(c) }
+              }
+
+              private fun radios(
+                  options: List<Pair<String, String>>,
+                  current: String,
+                  onPick: (String) -> Unit
+              ): RadioGroup {
+                  val g = RadioGroup(this)
+                  options.forEachIndexed { i, (key, name) ->
+                      g.addView(RadioButton(this).apply {
+                          id = 5000 + i
+                          text = name
+                          isChecked = key == current
+                      })
+                  }
+                  g.setOnCheckedChangeListener { _, id ->
+                      onPick(options[id - 5000].first)
+                      reloadIsland()
+                  }
+                  return g
+              }
+
+              /** Curseur : l'île se met à jour pendant que tu fais glisser */
+              private fun seek(
+                  title: String,
+                  lo: Int,
+                  hi: Int,
+                  get: () -> Int,
+                  set: (Int) -> Unit
+              ): LinearLayout {
+                  val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  val tv = TextView(this).apply {
+                      text = "$title : ${get()}"
+                      setPadding(0, dp(12), 0, 0)
+                  }
+                  val sb = SeekBar(this).apply {
+                      max = hi - lo
+                      progress = get() - lo
+                      setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                          override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                              set(p + lo)
+                              tv.text = "$title : ${p + lo}"
+                              if (fromUser) reloadIsland()
+                          }
+                          override fun onStartTrackingTouch(s: SeekBar?) {}
+                          override fun onStopTrackingTouch(s: SeekBar?) {}
+                      })
+                  }
+                  box.addView(tv)
+                  box.addView(sb)
+                  return box
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/NotifListener.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.app.Notification
+          import android.content.ComponentName
+          import android.os.Build
+          import android.service.notification.NotificationListenerService
+          import android.service.notification.StatusBarNotification
+
+          class NotifListener : NotificationListenerService() {
+
+              companion object {
+                  @Volatile
+                  var instance: NotifListener? = null
+              }
+
+              override fun onListenerConnected() {
+                  instance = this
+                  recompute()
+              }
+
+              override fun onListenerDisconnected() {
+                  instance = null
+                  IslandBus.update(0, 0)
+                  if (Build.VERSION.SDK_INT >= 24) {
+                      try {
+                          requestRebind(ComponentName(this, NotifListener::class.java))
+                      } catch (_: Exception) {
+                      }
+                  }
+              }
+
+              override fun onNotificationPosted(sbn: StatusBarNotification?) {
+                  if (sbn != null && sbn.packageName != packageName && !sbn.isOngoing) {
+                      Prefs(this).markSeen(sbn.packageName)
+                  }
+                  recompute()
+              }
+
+              override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+                  recompute()
+              }
+
+              fun recompute() {
+                  val prefs = Prefs(this)
+                  if (!prefs.ledEnabled) {
+                      IslandBus.update(0, 0)
+                      return
+                  }
+                  val active = try {
+                      activeNotifications
+                  } catch (_: Exception) {
+                      null
+                  } ?: return
+
+                  val rules = prefs.rules()
+                  val relevant = active.filter {
+                      it.packageName != packageName &&
+                          !it.isOngoing &&
+                          (it.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0 &&
+                          rules[it.packageName] != 0
+                  }
+
+                  var color = 0
+                  for ((pkg, c) in rules) {
+                      if (c != 0 && relevant.any { it.packageName == pkg }) {
+                          color = c
+                          break
+                      }
+                  }
+                  if (color == 0 && prefs.ledDefaultColor != 0 &&
+                      relevant.any { !rules.containsKey(it.packageName) }
+                  ) {
+                      color = prefs.ledDefaultColor
+                  }
+                  IslandBus.update(color, relevant.size)
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/Prefs.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.content.Context
+          import android.graphics.Color
+
+          class Prefs(context: Context) {
+              private val sp = context.getSharedPreferences("island", Context.MODE_PRIVATE)
+
+              private fun putB(k: String, v: Boolean) = sp.edit().putBoolean(k, v).apply()
+              private fun putI(k: String, v: Int) = sp.edit().putInt(k, v).apply()
+              private fun putS(k: String, v: String) = sp.edit().putString(k, v).apply()
+
+              companion object {
+                  const val DEFAULT_RULES = """com.whatsapp=#25D366
+          org.telegram.messenger=#2AABEE
+          com.google.android.gm=#EA4335
+          com.google.android.apps.messaging=#4285F4
+          com.android.mms=#4285F4
+          com.google.android.dialer=#FF3B30
+          com.android.incallui=#FF3B30
+          com.instagram.android=#E1306C"""
+              }
+
+              // ----- Forme (en dp) -----
+              var width: Int
+                  get() = sp.getInt("width", 44)
+                  set(v) = putI("width", v)
+              var height: Int
+                  get() = sp.getInt("height", 30)
+                  set(v) = putI("height", v)
+              /** Évasement des coins du haut (le raccord concave avec le bord de l'écran) */
+              var flare: Int
+                  get() = sp.getInt("flare", 8)
+                  set(v) = putI("flare", v)
+              /** Arrondi des coins du bas */
+              var bottomRadius: Int
+                  get() = sp.getInt("bottomRadius", 18)
+                  set(v) = putI("bottomRadius", v)
+              var xOffset: Int
+                  get() = sp.getInt("xOffset", 70)
+                  set(v) = putI("xOffset", v)
+              var bgColor: Int
+                  get() = sp.getInt("bgColor", Color.BLACK)
+                  set(v) = putI("bgColor", v)
+              var showOnlyWithLed: Boolean
+                  get() = sp.getBoolean("showOnlyWithLed", false)
+                  set(v) = putB("showOnlyWithLed", v)
+
+              // ----- LED -----
+              var ledEnabled: Boolean
+                  get() = sp.getBoolean("ledEnabled", true)
+                  set(v) = putB("ledEnabled", v)
+              var ledPulse: Boolean
+                  get() = sp.getBoolean("ledPulse", true)
+                  set(v) = putB("ledPulse", v)
+              var ledWidth: Int
+                  get() = sp.getInt("ledWidth", 10)
+                  set(v) = putI("ledWidth", v)
+              var ledHeight: Int
+                  get() = sp.getInt("ledHeight", 10)
+                  set(v) = putI("ledHeight", v)
+              /** Arrondi de la LED (grand = ronde) */
+              var ledRadius: Int
+                  get() = sp.getInt("ledRadius", 30)
+                  set(v) = putI("ledRadius", v)
+              /** Décalage de la LED par rapport au centre de la forme (dp) */
+              var ledX: Int
+                  get() = sp.getInt("ledX", 0)
+                  set(v) = putI("ledX", v)
+              var ledY: Int
+                  get() = sp.getInt("ledY", 0)
+                  set(v) = putI("ledY", v)
+
+              /** Couleur pour les applis sans règle (0 = pas de LED) */
+              var ledDefaultColor: Int
+                  get() = sp.getInt("ledDefaultColor", Color.WHITE)
+                  set(v) = putI("ledDefaultColor", v)
+
+              private var ledRules: String
+                  get() = sp.getString("ledRules", DEFAULT_RULES) ?: DEFAULT_RULES
+                  set(v) = putS("ledRules", v)
+
+              var seenPackages: Set<String>
+                  get() = sp.getStringSet("seen", emptySet()) ?: emptySet()
+                  set(v) {
+                      sp.edit().putStringSet("seen", HashSet(v)).apply()
+                  }
+
+              fun markSeen(pkg: String) {
+                  val s = HashSet(seenPackages)
+                  if (s.add(pkg)) seenPackages = s
+              }
+
+              // ----- Règles couleur par appli (0 = pas de LED pour cette appli) -----
+              fun rules(): LinkedHashMap<String, Int> {
+                  val m = LinkedHashMap<String, Int>()
+                  ledRules.lines().forEach { line ->
+                      val parts = line.trim().split("=")
+                      if (parts.size == 2) {
+                          val v = parts[1].trim()
+                          try {
+                              m[parts[0].trim()] = if (v == "off") 0 else Color.parseColor(v)
+                          } catch (_: Exception) {
+                          }
+                      }
+                  }
+                  return m
+              }
+
+              fun setRule(pkg: String, color: Int) {
+                  val m = rules()
+                  m[pkg] = color
+                  saveRules(m)
+              }
+
+              fun removeRule(pkg: String) {
+                  val m = rules()
+                  m.remove(pkg)
+                  saveRules(m)
+              }
+
+              private fun saveRules(m: Map<String, Int>) {
+                  ledRules = m.entries.joinToString("\n") { e ->
+                      if (e.value == 0) "${e.key}=off"
+                      else e.key + "=" + String.format("#%06X", e.value and 0xFFFFFF)
+                  }
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/strings.xml <<'KOTLIN_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Custom Island</string>
+              <string name="acc_desc">Affiche la capsule flottante au dessus de tout, y compris le panneau de notifications.</string>
+          </resources>
+          KOTLIN_EOF
+          mkdir -p app/src/main/res/xml
+          cat > app/src/main/res/xml/accessibility_config.xml <<'KOTLIN_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeWindowStateChanged"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagDefault"
+              android:canRetrieveWindowContent="false"
+              android:description="@string/acc_desc"
+              android:notificationTimeout="500" />
+          KOTLIN_EOF
+          cat > build.gradle.kts <<'KOTLIN_EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          KOTLIN_EOF
+          cat > gradle.properties <<'KOTLIN_EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          KOTLIN_EOF
+          cat > settings.gradle.kts <<'KOTLIN_EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "CustomIsland"
+          include(":app")
+          KOTLIN_EOF
+      - name: Build debug APK
+        run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CustomIsland-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
