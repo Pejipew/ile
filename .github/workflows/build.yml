@@ -257,10 +257,12 @@ jobs:
                   v.setPadding(0, dp(prefs.flare), 0, 0)
 
                   val ledLp = ledView.layoutParams as FrameLayout.LayoutParams
-                  ledLp.width = dp(prefs.ledSize)
-                  ledLp.height = dp(prefs.ledSize)
+                  ledLp.width = dp(prefs.ledWidth)
+                  ledLp.height = dp(prefs.ledHeight)
                   ledLp.gravity = Gravity.CENTER
                   ledView.layoutParams = ledLp
+                  ledView.translationX = dp(prefs.ledX).toFloat()
+                  ledView.translationY = dp(prefs.ledY).toFloat()
 
                   params.width = dp(prefs.width)
                   params.height = dp(prefs.height)
@@ -281,7 +283,8 @@ jobs:
                   if (on) {
                       ledView.visibility = View.VISIBLE
                       ledView.background = GradientDrawable().apply {
-                          shape = GradientDrawable.OVAL
+                          shape = GradientDrawable.RECTANGLE
+                          cornerRadius = dp(prefs.ledRadius).toFloat()
                           setColor(c)
                       }
                       if (prefs.ledPulse) {
@@ -410,6 +413,8 @@ jobs:
               private lateinit var status: TextView
               private lateinit var appList: LinearLayout
               private val handler = Handler(Looper.getMainLooper())
+              private var preview = true
+              private var inForeground = false
 
               private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -423,6 +428,10 @@ jobs:
               }
 
               private fun restoreLed() {
+                  if (preview && inForeground) {
+                      IslandBus.update(Color.GREEN, 1)
+                      return
+                  }
                   val l = NotifListener.instance
                   if (l != null) l.recompute() else IslandBus.update(0, 0)
               }
@@ -479,7 +488,14 @@ jobs:
                       prefs.ledEnabled = it; recomputeLed(); reloadIsland()
                   })
                   col.addView(switch("LED qui pulse", prefs.ledPulse) { prefs.ledPulse = it; reloadIsland() })
-                  col.addView(seek("Taille de la LED", 4, 24, { prefs.ledSize }, { prefs.ledSize = it }))
+                  col.addView(switch("Aperçu de la LED pendant les réglages", preview) {
+                      preview = it; restoreLed()
+                  })
+                  col.addView(seek("LED : largeur", 2, 60, { prefs.ledWidth }, { prefs.ledWidth = it }))
+                  col.addView(seek("LED : hauteur", 2, 60, { prefs.ledHeight }, { prefs.ledHeight = it }))
+                  col.addView(seek("LED : arrondi", 0, 30, { prefs.ledRadius }, { prefs.ledRadius = it }))
+                  col.addView(seek("LED : position horizontale (0 = centre)", -100, 100, { prefs.ledX }, { prefs.ledX = it }))
+                  col.addView(seek("LED : position verticale (0 = centre)", -50, 50, { prefs.ledY }, { prefs.ledY = it }))
                   col.addView(button("Tester la LED (6 s)") {
                       IslandBus.update(Color.GREEN, 1)
                       handler.postDelayed({ restoreLed() }, 6000)
@@ -494,8 +510,16 @@ jobs:
                   setContentView(ScrollView(this).apply { addView(col) })
               }
 
+              override fun onPause() {
+                  super.onPause()
+                  inForeground = false
+                  restoreLed()
+              }
+
               override fun onResume() {
                   super.onResume()
+                  inForeground = true
+                  restoreLed()
                   val acc = IslandAccessibilityService.instance != null
                   val notif = NotifListener.instance != null
                   status.text = "Île : " + (if (acc) "active ✔" else "inactive ✘") +
@@ -888,9 +912,23 @@ jobs:
               var ledPulse: Boolean
                   get() = sp.getBoolean("ledPulse", true)
                   set(v) = putB("ledPulse", v)
-              var ledSize: Int
-                  get() = sp.getInt("ledSize", 10)
-                  set(v) = putI("ledSize", v)
+              var ledWidth: Int
+                  get() = sp.getInt("ledWidth", 10)
+                  set(v) = putI("ledWidth", v)
+              var ledHeight: Int
+                  get() = sp.getInt("ledHeight", 10)
+                  set(v) = putI("ledHeight", v)
+              /** Arrondi de la LED (grand = ronde) */
+              var ledRadius: Int
+                  get() = sp.getInt("ledRadius", 30)
+                  set(v) = putI("ledRadius", v)
+              /** Décalage de la LED par rapport au centre de la forme (dp) */
+              var ledX: Int
+                  get() = sp.getInt("ledX", 0)
+                  set(v) = putI("ledX", v)
+              var ledY: Int
+                  get() = sp.getInt("ledY", 0)
+                  set(v) = putI("ledY", v)
 
               /** Couleur pour les applis sans règle (0 = pas de LED) */
               var ledDefaultColor: Int
