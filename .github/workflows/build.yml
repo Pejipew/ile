@@ -1,0 +1,621 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Create project files
+        run: |
+          mkdir -p app
+          cat > app/build.gradle.kts <<'KOTLIN_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.example.island"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.example.island"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'KOTLIN_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.MAIN" />
+                      <category android:name="android.intent.category.LAUNCHER" />
+                  </intent>
+              </queries>
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@android:drawable/sym_def_app_icon"
+                  android:label="Custom Island"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".IslandService"
+                      android:exported="false"
+                      android:foregroundServiceType="specialUse">
+                      <property
+                          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                          android:value="overlay" />
+                  </service>
+              </application>
+          </manifest>
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/IslandService.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.animation.Animator
+          import android.animation.AnimatorListenerAdapter
+          import android.animation.ValueAnimator
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.Service
+          import android.content.Intent
+          import android.content.IntentFilter
+          import android.content.pm.ServiceInfo
+          import android.graphics.Color
+          import android.graphics.PixelFormat
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.os.BatteryManager
+          import android.os.Build
+          import android.os.Handler
+          import android.os.IBinder
+          import android.os.Looper
+          import android.text.TextUtils
+          import android.view.Gravity
+          import android.view.ViewGroup
+          import android.view.WindowManager
+          import android.view.animation.OvershootInterpolator
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+
+          class IslandService : Service() {
+
+              companion object {
+                  @Volatile
+                  var running = false
+                  private const val CHANNEL = "island"
+                  private const val AUTO_COLLAPSE_MS = 7000L
+              }
+
+              private lateinit var wm: WindowManager
+              private lateinit var prefs: Prefs
+              private var pill: LinearLayout? = null
+              private var bg: GradientDrawable? = null
+              private lateinit var lp: WindowManager.LayoutParams
+              private var expanded = false
+              private var animating = false
+              private var counter = 0
+              private val handler = Handler(Looper.getMainLooper())
+
+              private val ticker = object : Runnable {
+                  override fun run() {
+                      if (!animating) render()
+                      handler.postDelayed(this, 1000)
+                  }
+              }
+              private val autoCollapse = Runnable { if (expanded) toggle() }
+
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+              private fun collapsedW() = dp(150)
+              private fun collapsedH() = dp(34)
+              private fun expandedW() = minOf(dp(360), resources.displayMetrics.widthPixels - dp(24))
+              private fun expandedH() = dp(112)
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  wm = getSystemService(WINDOW_SERVICE) as WindowManager
+                  prefs = Prefs(this)
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  startFg()
+                  running = true
+                  build()
+                  handler.removeCallbacks(ticker)
+                  handler.post(ticker)
+                  return START_STICKY
+              }
+
+              override fun onDestroy() {
+                  running = false
+                  handler.removeCallbacksAndMessages(null)
+                  pill?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+                  pill = null
+                  super.onDestroy()
+              }
+
+              private fun startFg() {
+                  val nm = getSystemService(NotificationManager::class.java)
+                  nm.createNotificationChannel(
+                      NotificationChannel(CHANNEL, "Île active", NotificationManager.IMPORTANCE_MIN)
+                  )
+                  val n = Notification.Builder(this, CHANNEL)
+                      .setContentTitle("Custom Island actif")
+                      .setSmallIcon(android.R.drawable.ic_dialog_info)
+                      .setOngoing(true)
+                      .build()
+                  if (Build.VERSION.SDK_INT >= 34) {
+                      startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                  } else {
+                      startForeground(1, n)
+                  }
+              }
+
+              // ---------- Construction de la fenêtre flottante ----------
+
+              private fun build() {
+                  pill?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+                  expanded = false
+                  animating = false
+
+                  bg = GradientDrawable().apply {
+                      setColor(Color.BLACK)
+                      cornerRadius = collapsedH() / 2f
+                  }
+                  val v = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER
+                      background = bg
+                      setPadding(dp(14), 0, dp(14), 0)
+                      setOnClickListener { toggle() }
+                  }
+                  lp = WindowManager.LayoutParams(
+                      collapsedW(),
+                      collapsedH(),
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                          WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                          WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                          WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                      PixelFormat.TRANSLUCENT
+                  ).apply {
+                      gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                      y = dp(prefs.topMargin)
+                      if (Build.VERSION.SDK_INT >= 30) {
+                          layoutInDisplayCutoutMode =
+                              WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                      }
+                  }
+                  pill = v
+                  wm.addView(v, lp)
+                  render()
+              }
+
+              // ---------- Animation replié / déployé ----------
+
+              private fun toggle() {
+                  val v = pill ?: return
+                  if (animating) return
+                  expanded = !expanded
+                  handler.removeCallbacks(autoCollapse)
+                  if (expanded) handler.postDelayed(autoCollapse, AUTO_COLLAPSE_MS)
+
+                  val w0 = lp.width
+                  val h0 = lp.height
+                  val w1 = if (expanded) expandedW() else collapsedW()
+                  val h1 = if (expanded) expandedH() else collapsedH()
+                  render()
+
+                  animating = true
+                  ValueAnimator.ofFloat(0f, 1f).apply {
+                      duration = 320
+                      interpolator = OvershootInterpolator(0.8f)
+                      addUpdateListener {
+                          val f = it.animatedValue as Float
+                          lp.width = (w0 + (w1 - w0) * f).toInt().coerceAtLeast(dp(20))
+                          lp.height = (h0 + (h1 - h0) * f).toInt().coerceAtLeast(dp(20))
+                          bg?.cornerRadius = minOf(lp.height / 2f, dp(30).toFloat())
+                          try { wm.updateViewLayout(v, lp) } catch (_: Exception) {}
+                      }
+                      addListener(object : AnimatorListenerAdapter() {
+                          override fun onAnimationEnd(animation: Animator) {
+                              animating = false
+                          }
+                      })
+                      start()
+                  }
+              }
+
+              // ---------- Contenu ----------
+
+              private fun render() {
+                  val v = pill ?: return
+                  v.removeAllViews()
+                  if (!expanded) {
+                      v.addView(label(collapsedText(), 13f, bold = true))
+                      return
+                  }
+                  val mods = modules()
+                  if (mods.isEmpty()) {
+                      v.addView(label("Aucun module activé", 14f))
+                      return
+                  }
+                  mods.forEach {
+                      v.addView(it, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                  }
+              }
+
+              private fun collapsedText(): String = when (prefs.collapsedMode) {
+                  "battery" -> "${battery().first}%"
+                  "text" -> prefs.customText
+                  else -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+              }
+
+              private fun modules(): List<LinearLayout> {
+                  val list = mutableListOf<LinearLayout>()
+                  if (prefs.showClock) {
+                      val now = Date()
+                      list += module(
+                          SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(now),
+                          SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
+                      )
+                  }
+                  if (prefs.showBattery) {
+                      val (lvl, charging) = battery()
+                      list += module(if (charging) "En charge" else "Batterie", "$lvl%")
+                  }
+                  if (prefs.showText) {
+                      list += module("Message", prefs.customText)
+                  }
+                  if (prefs.showCounter) {
+                      list += module("Compteur (touche)", counter.toString()) {
+                          counter++
+                          render()
+                      }
+                  }
+                  if (prefs.showLaunch) {
+                      list += module(prefs.launchPackage.substringAfterLast('.'), "↗") {
+                          packageManager.getLaunchIntentForPackage(prefs.launchPackage)?.let {
+                              it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                              startActivity(it)
+                          }
+                      }
+                  }
+                  return list
+              }
+
+              private fun module(title: String, value: String, onClick: (() -> Unit)? = null): LinearLayout =
+                  LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      gravity = Gravity.CENTER
+                      addView(label(value, 20f, bold = true))
+                      addView(label(title, 11f, a = 0.6f))
+                      if (onClick != null) {
+                          setOnClickListener {
+                              onClick()
+                              handler.removeCallbacks(autoCollapse)
+                              handler.postDelayed(autoCollapse, AUTO_COLLAPSE_MS)
+                          }
+                      }
+                  }
+
+              private fun label(t: String, size: Float, bold: Boolean = false, a: Float = 1f) =
+                  TextView(this).apply {
+                      text = t
+                      setTextColor(Color.WHITE)
+                      textSize = size
+                      alpha = a
+                      gravity = Gravity.CENTER
+                      maxLines = 1
+                      ellipsize = TextUtils.TruncateAt.END
+                      if (bold) setTypeface(typeface, Typeface.BOLD)
+                  }
+
+              private fun battery(): Pair<Int, Boolean> {
+                  val i = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                  val lvl = i?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                  val scale = i?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+                  val st = i?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+                  val charging = st == BatteryManager.BATTERY_STATUS_CHARGING ||
+                      st == BatteryManager.BATTERY_STATUS_FULL
+                  return Pair(if (lvl < 0) 0 else lvl * 100 / scale, charging)
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/MainActivity.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.Manifest
+          import android.app.Activity
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.text.Editable
+          import android.text.TextWatcher
+          import android.view.ViewGroup
+          import android.widget.Button
+          import android.widget.EditText
+          import android.widget.LinearLayout
+          import android.widget.RadioButton
+          import android.widget.RadioGroup
+          import android.widget.ScrollView
+          import android.widget.SeekBar
+          import android.widget.Switch
+          import android.widget.TextView
+          import android.widget.Toast
+          import androidx.core.content.ContextCompat
+
+          class MainActivity : Activity() {
+
+              private lateinit var prefs: Prefs
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+              /** Relance le service (s'il tourne) pour appliquer les réglages */
+              private fun apply() {
+                  if (IslandService.running) {
+                      ContextCompat.startForegroundService(this, Intent(this, IslandService::class.java))
+                  }
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  prefs = Prefs(this)
+
+                  if (Build.VERSION.SDK_INT >= 33) {
+                      requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+                  }
+
+                  val col = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(20), dp(40), dp(20), dp(32))
+                  }
+
+                  col.addView(TextView(this).apply {
+                      text = "Custom Island"
+                      textSize = 26f
+                  })
+
+                  col.addView(button("1. Autoriser l'affichage par-dessus les autres applis") {
+                      if (Settings.canDrawOverlays(this)) {
+                          toast("Déjà autorisé ✔")
+                      } else {
+                          startActivity(
+                              Intent(
+                                  Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                  Uri.parse("package:$packageName")
+                              )
+                          )
+                      }
+                  })
+                  col.addView(button("2. Démarrer l'île") {
+                      if (!Settings.canDrawOverlays(this)) {
+                          toast("Autorise d'abord l'affichage par-dessus")
+                      } else {
+                          ContextCompat.startForegroundService(this, Intent(this, IslandService::class.java))
+                      }
+                  })
+                  col.addView(button("Arrêter l'île") {
+                      stopService(Intent(this, IslandService::class.java))
+                  })
+
+                  col.addView(section("Modules affichés quand on touche l'île"))
+                  col.addView(switch("Horloge + date", prefs.showClock) { prefs.showClock = it; apply() })
+                  col.addView(switch("Batterie", prefs.showBattery) { prefs.showBattery = it; apply() })
+                  col.addView(switch("Message perso", prefs.showText) { prefs.showText = it; apply() })
+                  col.addView(switch("Compteur (touche pour +1)", prefs.showCounter) { prefs.showCounter = it; apply() })
+                  col.addView(switch("Raccourci vers une appli", prefs.showLaunch) { prefs.showLaunch = it; apply() })
+
+                  col.addView(section("Message perso"))
+                  col.addView(field("Texte", prefs.customText) { prefs.customText = it; apply() })
+
+                  col.addView(section("Package de l'appli à ouvrir"))
+                  col.addView(field("ex : io.homeassistant.companion.android", prefs.launchPackage) {
+                      prefs.launchPackage = it; apply()
+                  })
+
+                  col.addView(section("Affichage quand l'île est repliée"))
+                  val group = RadioGroup(this)
+                  val modes = listOf("clock" to "Heure", "battery" to "Batterie", "text" to "Message perso")
+                  modes.forEachIndexed { i, (key, name) ->
+                      group.addView(RadioButton(this).apply {
+                          id = 1000 + i
+                          text = name
+                          isChecked = prefs.collapsedMode == key
+                      })
+                  }
+                  group.setOnCheckedChangeListener { _, id ->
+                      prefs.collapsedMode = modes[id - 1000].first
+                      apply()
+                  }
+                  col.addView(group)
+
+                  col.addView(section("Position verticale (dp depuis le haut)"))
+                  col.addView(SeekBar(this).apply {
+                      max = 80
+                      progress = prefs.topMargin
+                      setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                          override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                              prefs.topMargin = p
+                          }
+                          override fun onStartTrackingTouch(s: SeekBar?) {}
+                          override fun onStopTrackingTouch(s: SeekBar?) { apply() }
+                      })
+                  })
+
+                  setContentView(ScrollView(this).apply { addView(col) })
+              }
+
+              // ---------- Petits helpers d'UI ----------
+
+              private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_SHORT).show()
+
+              private fun section(t: String) = TextView(this).apply {
+                  text = t
+                  textSize = 15f
+                  setPadding(0, dp(24), 0, dp(6))
+              }
+
+              private fun button(t: String, onClick: () -> Unit) = Button(this).apply {
+                  text = t
+                  isAllCaps = false
+                  layoutParams = LinearLayout.LayoutParams(
+                      ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                  ).apply { topMargin = dp(10) }
+                  setOnClickListener { onClick() }
+              }
+
+              private fun switch(t: String, checked: Boolean, onChange: (Boolean) -> Unit) = Switch(this).apply {
+                  text = t
+                  isChecked = checked
+                  setPadding(0, dp(8), 0, dp(8))
+                  setOnCheckedChangeListener { _, c -> onChange(c) }
+              }
+
+              private fun field(hint: String, value: String, onChange: (String) -> Unit) = EditText(this).apply {
+                  this.hint = hint
+                  setText(value)
+                  setSingleLine()
+                  addTextChangedListener(object : TextWatcher {
+                      override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+                      override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+                      override fun afterTextChanged(s: Editable?) { onChange(s.toString()) }
+                  })
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/Prefs.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.content.Context
+
+          class Prefs(context: Context) {
+              private val sp = context.getSharedPreferences("island", Context.MODE_PRIVATE)
+
+              var showClock: Boolean
+                  get() = sp.getBoolean("clock", true)
+                  set(v) = sp.edit().putBoolean("clock", v).apply()
+
+              var showBattery: Boolean
+                  get() = sp.getBoolean("battery", true)
+                  set(v) = sp.edit().putBoolean("battery", v).apply()
+
+              var showText: Boolean
+                  get() = sp.getBoolean("text", true)
+                  set(v) = sp.edit().putBoolean("text", v).apply()
+
+              var showCounter: Boolean
+                  get() = sp.getBoolean("counter", false)
+                  set(v) = sp.edit().putBoolean("counter", v).apply()
+
+              var showLaunch: Boolean
+                  get() = sp.getBoolean("launch", false)
+                  set(v) = sp.edit().putBoolean("launch", v).apply()
+
+              var customText: String
+                  get() = sp.getString("customText", "Salut Pierre-Jean") ?: ""
+                  set(v) = sp.edit().putString("customText", v).apply()
+
+              var launchPackage: String
+                  get() = sp.getString("launchPackage", "io.homeassistant.companion.android") ?: ""
+                  set(v) = sp.edit().putString("launchPackage", v).apply()
+
+              /** "clock", "battery" ou "text" : ce qui s'affiche quand l'île est repliée */
+              var collapsedMode: String
+                  get() = sp.getString("collapsedMode", "clock") ?: "clock"
+                  set(v) = sp.edit().putString("collapsedMode", v).apply()
+
+              /** Décalage depuis le haut de l'écran, en dp */
+              var topMargin: Int
+                  get() = sp.getInt("topMargin", 10)
+                  set(v) = sp.edit().putInt("topMargin", v).apply()
+          }
+          KOTLIN_EOF
+          cat > build.gradle.kts <<'KOTLIN_EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          KOTLIN_EOF
+          cat > gradle.properties <<'KOTLIN_EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          KOTLIN_EOF
+          cat > settings.gradle.kts <<'KOTLIN_EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "CustomIsland"
+          include(":app")
+          KOTLIN_EOF
+      - name: Build debug APK
+        run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CustomIsland-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
