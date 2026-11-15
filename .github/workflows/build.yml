@@ -132,11 +132,11 @@ jobs:
                   controller = c
                   IslandBus.onChange = { c.refreshLed() }
                   c.start()
-                  c.refreshLed()
               }
 
+              /** Applique les réglages en direct, sans recréer la fenêtre */
               fun reload() {
-                  controller?.rebuild()
+                  controller?.applyLive()
               }
 
               override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -145,7 +145,7 @@ jobs:
 
               override fun onConfigurationChanged(newConfig: Configuration) {
                   super.onConfigurationChanged(newConfig)
-                  controller?.rebuild()
+                  controller?.applyLive()
               }
 
               override fun onUnbind(intent: Intent?): Boolean {
@@ -186,173 +186,100 @@ jobs:
           cat > app/src/main/java/com/example/island/IslandController.kt <<'KOTLIN_EOF'
           package com.example.island
 
-          import android.animation.Animator
-          import android.animation.AnimatorListenerAdapter
           import android.animation.ObjectAnimator
           import android.animation.ValueAnimator
           import android.content.Context
-          import android.content.Intent
-          import android.content.IntentFilter
-          import android.graphics.Color
           import android.graphics.PixelFormat
-          import android.graphics.Typeface
           import android.graphics.drawable.GradientDrawable
-          import android.os.BatteryManager
           import android.os.Build
-          import android.os.Handler
-          import android.os.Looper
-          import android.text.TextUtils
           import android.view.Gravity
           import android.view.View
           import android.view.ViewGroup
           import android.view.WindowManager
-          import android.view.animation.OvershootInterpolator
-          import android.widget.LinearLayout
-          import android.widget.TextView
-          import androidx.core.graphics.ColorUtils
-          import java.text.SimpleDateFormat
-          import java.util.Date
-          import java.util.Locale
+          import android.widget.FrameLayout
 
-          private data class Mod(val title: String, val value: String, val onClick: (() -> Unit)? = null)
-
+          /** Forme d'encoche accrochée en haut de l'écran, avec une LED au centre */
           class IslandController(private val ctx: Context, private val windowType: Int) {
-
-              companion object {
-                  private const val AUTO_COLLAPSE_MS = 7000L
-              }
 
               private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
               private val prefs = Prefs(ctx)
-              private val handler = Handler(Looper.getMainLooper())
-
-              private var pill: LinearLayout? = null
-              private lateinit var lp: WindowManager.LayoutParams
-              private var expanded = false
-              private var animating = false
-              private var counter = 0
-              private var lastSig = ""
-
+              private val bg = IslandDrawable()
               private val ledView = View(ctx)
               private var ledAnim: ObjectAnimator? = null
-              private var ledOn = false
-
-              private val ticker = object : Runnable {
-                  override fun run() {
-                      if (!animating) render()
-                      handler.postDelayed(this, 1000)
-                  }
-              }
-              private val autoCollapse = Runnable { if (expanded) toggle() }
+              private var root: FrameLayout? = null
+              private var lp: WindowManager.LayoutParams? = null
 
               private fun dp(v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
-              private fun collapsedW() = dp(prefs.collapsedWidth)
-              private fun collapsedH() = dp(prefs.collapsedHeight)
-              private fun expandedW() = minOf(dp(360), ctx.resources.displayMetrics.widthPixels - dp(24))
-              private fun expandedH() = dp(if (prefs.shape == "drop") 126 else 112)
-              private fun fg(): Int =
-                  if (ColorUtils.calculateLuminance(prefs.bgColor) > 0.6) Color.BLACK else Color.WHITE
-
-              // ---------- Cycle de vie ----------
 
               fun start() {
-                  build()
-                  handler.removeCallbacks(ticker)
-                  handler.post(ticker)
-              }
+                  stop()
+                  (ledView.parent as? ViewGroup)?.removeView(ledView)
+                  val v = FrameLayout(ctx).apply { background = bg }
+                  v.addView(ledView, FrameLayout.LayoutParams(dp(10), dp(10), Gravity.CENTER))
 
-              fun stop() {
-                  handler.removeCallbacksAndMessages(null)
-                  ledAnim?.cancel()
-                  pill?.let { try { wm.removeView(it) } catch (_: Exception) {} }
-                  pill = null
-              }
-
-              fun rebuild() {
-                  build()
-                  refreshLed()
-              }
-
-              // ---------- Fenêtre flottante ----------
-
-              private fun build() {
-                  pill?.let { try { wm.removeView(it) } catch (_: Exception) {} }
-                  expanded = false
-                  animating = false
-                  lastSig = ""
-                  handler.removeCallbacks(autoCollapse)
-
-                  val drop = prefs.shape == "drop"
-                  val v = LinearLayout(ctx).apply {
-                      orientation = LinearLayout.HORIZONTAL
-                      gravity = Gravity.CENTER
-                      background = IslandDrawable(prefs.shape, dp(prefs.radius).toFloat(), prefs.bgColor)
-                      setPadding(dp(14), if (drop) dp(6) else 0, dp(14), if (drop) dp(2) else 0)
-                      setOnClickListener { toggle() }
-                  }
-                  lp = WindowManager.LayoutParams(
-                      collapsedW(),
-                      collapsedH(),
+                  val params = WindowManager.LayoutParams(
+                      dp(prefs.width),
+                      dp(prefs.height),
                       windowType,
                       WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                          WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                          WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                           WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                           WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                       PixelFormat.TRANSLUCENT
                   ).apply {
                       gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                      x = dp(prefs.xOffset)
-                      y = dp(prefs.topMargin)
                       if (Build.VERSION.SDK_INT >= 30) {
                           layoutInDisplayCutoutMode =
                               WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                      } else if (Build.VERSION.SDK_INT >= 28) {
+                          layoutInDisplayCutoutMode =
+                              WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                       }
                   }
-                  pill = v
-                  wm.addView(v, lp)
-                  render(true)
+                  root = v
+                  lp = params
+                  wm.addView(v, params)
+                  applyLive()
               }
 
-              // ---------- Animation replié / déployé ----------
-
-              private fun toggle() {
-                  val v = pill ?: return
-                  if (animating) return
-                  expanded = !expanded
-                  handler.removeCallbacks(autoCollapse)
-                  if (expanded) handler.postDelayed(autoCollapse, AUTO_COLLAPSE_MS)
-
-                  val w0 = lp.width
-                  val h0 = lp.height
-                  val w1 = if (expanded) expandedW() else collapsedW()
-                  val h1 = if (expanded) expandedH() else collapsedH()
-                  render(true)
-
-                  animating = true
-                  ValueAnimator.ofFloat(0f, 1f).apply {
-                      duration = 320
-                      interpolator = OvershootInterpolator(0.8f)
-                      addUpdateListener {
-                          val f = it.animatedValue as Float
-                          lp.width = (w0 + (w1 - w0) * f).toInt().coerceAtLeast(dp(20))
-                          lp.height = (h0 + (h1 - h0) * f).toInt().coerceAtLeast(dp(20))
-                          try { wm.updateViewLayout(v, lp) } catch (_: Exception) {}
-                      }
-                      addListener(object : AnimatorListenerAdapter() {
-                          override fun onAnimationEnd(animation: Animator) {
-                              animating = false
-                          }
-                      })
-                      start()
-                  }
+              fun stop() {
+                  ledAnim?.cancel()
+                  root?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+                  root = null
               }
 
-              // ---------- LED ----------
+              /** Relit tous les réglages et met la fenêtre à jour immédiatement */
+              fun applyLive() {
+                  val v = root ?: return
+                  val params = lp ?: return
+
+                  bg.set(dp(prefs.flare).toFloat(), dp(prefs.bottomRadius).toFloat(), prefs.bgColor)
+                  v.setPadding(0, dp(prefs.flare), 0, 0)
+
+                  val ledLp = ledView.layoutParams as FrameLayout.LayoutParams
+                  ledLp.width = dp(prefs.ledSize)
+                  ledLp.height = dp(prefs.ledSize)
+                  ledLp.gravity = Gravity.CENTER
+                  ledView.layoutParams = ledLp
+
+                  params.width = dp(prefs.width)
+                  params.height = dp(prefs.height)
+                  params.x = dp(prefs.xOffset)
+                  params.y = 0
+                  try { wm.updateViewLayout(v, params) } catch (_: Exception) {}
+
+                  refreshLed()
+              }
 
               fun refreshLed() {
+                  val v = root ?: return
                   val c = IslandBus.ledColor
-                  ledOn = prefs.ledEnabled && c != 0
-                  if (ledOn) {
+                  val on = prefs.ledEnabled && c != 0
+
+                  v.visibility = if (prefs.showOnlyWithLed && !on) View.INVISIBLE else View.VISIBLE
+
+                  if (on) {
+                      ledView.visibility = View.VISIBLE
                       ledView.background = GradientDrawable().apply {
                           shape = GradientDrawable.OVAL
                           setColor(c)
@@ -373,119 +300,8 @@ jobs:
                   } else {
                       ledAnim?.cancel()
                       ledView.alpha = 1f
+                      ledView.visibility = View.INVISIBLE
                   }
-                  if (!animating) render(true)
-              }
-
-              // ---------- Contenu ----------
-
-              private fun render(force: Boolean = false) {
-                  val v = pill ?: return
-                  val mods = if (expanded) modules() else emptyList()
-                  val collapsed = if (!expanded) collapsedText() else ""
-                  val sig = "$expanded|$collapsed|$ledOn|${IslandBus.ledColor}|" +
-                      mods.joinToString("|") { it.title + "/" + it.value }
-                  if (!force && sig == lastSig) return
-                  lastSig = sig
-
-                  v.removeAllViews()
-                  (ledView.parent as? ViewGroup)?.removeView(ledView)
-                  if (ledOn) {
-                      v.addView(ledView, LinearLayout.LayoutParams(dp(10), dp(10)).apply {
-                          marginEnd = dp(8)
-                      })
-                  }
-
-                  if (!expanded) {
-                      v.addView(label(collapsed, 13f, bold = true))
-                      return
-                  }
-                  if (mods.isEmpty()) {
-                      v.addView(label("Aucun module activé", 14f))
-                      return
-                  }
-                  mods.forEach {
-                      v.addView(
-                          moduleView(it),
-                          LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                      )
-                  }
-              }
-
-              private fun collapsedText(): String = when (prefs.collapsedMode) {
-                  "battery" -> "${battery().first}%"
-                  "text" -> prefs.customText
-                  else -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-              }
-
-              private fun modules(): List<Mod> {
-                  val list = mutableListOf<Mod>()
-                  if (prefs.showClock) {
-                      val now = Date()
-                      list += Mod(
-                          SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(now),
-                          SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
-                      )
-                  }
-                  if (prefs.showBattery) {
-                      val (lvl, charging) = battery()
-                      list += Mod(if (charging) "En charge" else "Batterie", "$lvl%")
-                  }
-                  if (prefs.showText) {
-                      list += Mod("Message", prefs.customText)
-                  }
-                  if (prefs.showCounter) {
-                      list += Mod("Compteur (touche)", counter.toString()) {
-                          counter++
-                          render()
-                      }
-                  }
-                  if (prefs.showLaunch) {
-                      list += Mod(prefs.launchPackage.substringAfterLast('.'), "↗") {
-                          ctx.packageManager.getLaunchIntentForPackage(prefs.launchPackage)?.let {
-                              it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                              ctx.startActivity(it)
-                          }
-                      }
-                  }
-                  return list
-              }
-
-              private fun moduleView(m: Mod): LinearLayout = LinearLayout(ctx).apply {
-                  orientation = LinearLayout.VERTICAL
-                  gravity = Gravity.CENTER
-                  addView(label(m.value, 20f, bold = true))
-                  addView(label(m.title, 11f, a = 0.6f))
-                  val click = m.onClick
-                  if (click != null) {
-                      setOnClickListener {
-                          click()
-                          handler.removeCallbacks(autoCollapse)
-                          handler.postDelayed(autoCollapse, AUTO_COLLAPSE_MS)
-                      }
-                  }
-              }
-
-              private fun label(t: String, size: Float, bold: Boolean = false, a: Float = 1f) =
-                  TextView(ctx).apply {
-                      text = t
-                      setTextColor(fg())
-                      textSize = size
-                      alpha = a
-                      gravity = Gravity.CENTER
-                      maxLines = 1
-                      ellipsize = TextUtils.TruncateAt.END
-                      if (bold) setTypeface(typeface, Typeface.BOLD)
-                  }
-
-              private fun battery(): Pair<Int, Boolean> {
-                  val i = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-                  val lvl = i?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-                  val scale = i?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
-                  val st = i?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-                  val charging = st == BatteryManager.BATTERY_STATUS_CHARGING ||
-                      st == BatteryManager.BATTERY_STATUS_FULL
-                  return Pair(if (lvl < 0) 0 else lvl * 100 / scale, charging)
               }
           }
           KOTLIN_EOF
@@ -501,15 +317,23 @@ jobs:
           import android.graphics.RectF
           import android.graphics.drawable.Drawable
 
-          /** Fond de l'île : capsule à arrondi réglable ou goutte */
-          class IslandDrawable(
-              private val shape: String,
-              private val radiusPx: Float,
-              fill: Int
-          ) : Drawable() {
+          /**
+           * Forme d'encoche : accrochée au bord haut de l'écran, avec des raccords
+           * concaves en haut (évasement) et un bas arrondi.
+           */
+          class IslandDrawable : Drawable() {
 
-              private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill }
+              private var flare = 0f
+              private var radius = 0f
+              private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
               private val path = Path()
+
+              fun set(flare: Float, radius: Float, fill: Int) {
+                  this.flare = flare
+                  this.radius = radius
+                  paint.color = fill
+                  invalidateSelf()
+              }
 
               override fun draw(canvas: Canvas) {
                   val w = bounds.width().toFloat()
@@ -517,21 +341,29 @@ jobs:
                   if (w <= 0f || h <= 0f) return
                   canvas.save()
                   canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
-                  if (shape == "drop") {
-                      val n = w * 0.18f
-                      path.reset()
-                      path.moveTo(n, 0f)
-                      path.lineTo(w - n, 0f)
-                      path.cubicTo(w - n, h * 0.35f, w, h * 0.35f, w, h * 0.68f)
-                      path.cubicTo(w, h * 0.9f, w * 0.78f, h, w / 2f, h)
-                      path.cubicTo(w * 0.22f, h, 0f, h * 0.9f, 0f, h * 0.68f)
-                      path.cubicTo(0f, h * 0.35f, n, h * 0.35f, n, 0f)
-                      path.close()
-                      canvas.drawPath(path, paint)
+
+                  val f = minOf(flare, w / 4f, h / 2f).coerceAtLeast(0f)
+                  val bodyW = w - 2f * f
+                  val r = minOf(radius, bodyW / 2f, h - f).coerceAtLeast(0f)
+
+                  path.reset()
+                  path.moveTo(0f, 0f)
+                  path.lineTo(w, 0f)
+                  if (f > 0.5f) path.arcTo(RectF(w - f, 0f, w + f, 2f * f), 270f, -90f)
+                  if (r > 0.5f) {
+                      path.lineTo(w - f, h - r)
+                      path.arcTo(RectF(w - f - 2f * r, h - 2f * r, w - f, h), 0f, 90f)
+                      path.lineTo(f + r, h)
+                      path.arcTo(RectF(f, h - 2f * r, f + 2f * r, h), 90f, 90f)
                   } else {
-                      val r = minOf(radiusPx, h / 2f, w / 2f)
-                      canvas.drawRoundRect(RectF(0f, 0f, w, h), r, r, paint)
+                      path.lineTo(w - f, h)
+                      path.lineTo(f, h)
                   }
+                  path.lineTo(f, f)
+                  if (f > 0.5f) path.arcTo(RectF(-f, 0f, f, 2f * f), 0f, -90f)
+                  path.close()
+
+                  canvas.drawPath(path, paint)
                   canvas.restore()
               }
 
@@ -552,19 +384,18 @@ jobs:
           package com.example.island
 
           import android.app.Activity
+          import android.app.AlertDialog
           import android.content.Intent
           import android.graphics.Color
-          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
           import android.os.Bundle
           import android.os.Handler
           import android.os.Looper
           import android.provider.Settings
-          import android.text.Editable
-          import android.text.TextWatcher
           import android.view.Gravity
+          import android.view.View
           import android.view.ViewGroup
           import android.widget.Button
-          import android.widget.EditText
           import android.widget.LinearLayout
           import android.widget.RadioButton
           import android.widget.RadioGroup
@@ -572,20 +403,28 @@ jobs:
           import android.widget.SeekBar
           import android.widget.Switch
           import android.widget.TextView
-          import android.widget.Toast
 
           class MainActivity : Activity() {
 
               private lateinit var prefs: Prefs
               private lateinit var status: TextView
-              private lateinit var lastPkg: TextView
+              private lateinit var appList: LinearLayout
               private val handler = Handler(Looper.getMainLooper())
 
               private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-              /** Applique les réglages à l'île en cours */
+              /** Applique les réglages à l'île, en direct */
               private fun reloadIsland() {
                   IslandAccessibilityService.instance?.reload()
+              }
+
+              private fun recomputeLed() {
+                  NotifListener.instance?.recompute()
+              }
+
+              private fun restoreLed() {
+                  val l = NotifListener.instance
+                  if (l != null) l.recompute() else IslandBus.update(0, 0)
               }
 
               override fun onCreate(savedInstanceState: Bundle?) {
@@ -601,7 +440,6 @@ jobs:
                       text = "Custom Island"
                       textSize = 26f
                   })
-
                   status = TextView(this).apply { setPadding(0, dp(12), 0, 0) }
                   col.addView(status)
 
@@ -612,23 +450,15 @@ jobs:
                       startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                   })
 
-                  // ----- Forme et taille -----
-                  col.addView(section("Forme"))
-                  col.addView(
-                      radios(
-                          listOf("pill" to "Capsule (arrondi réglable)", "drop" to "Goutte"),
-                          prefs.shape, 3000
-                      ) { prefs.shape = it }
-                  )
-                  col.addView(seek("Arrondi", 0, 50, { prefs.radius }, { prefs.radius = it }))
-                  col.addView(seek("Largeur repliée", 80, 250, { prefs.collapsedWidth }, { prefs.collapsedWidth = it }))
-                  col.addView(seek("Hauteur repliée", 24, 70, { prefs.collapsedHeight }, { prefs.collapsedHeight = it }))
+                  // ----- Forme : réglage en direct -----
+                  col.addView(section("Forme (tu vois le résultat en direct)"))
+                  col.addView(seek("Largeur", 20, 200, { prefs.width }, { prefs.width = it }))
+                  col.addView(seek("Hauteur", 16, 80, { prefs.height }, { prefs.height = it }))
+                  col.addView(seek("Évasement du haut", 0, 30, { prefs.flare }, { prefs.flare = it }))
+                  col.addView(seek("Arrondi du bas", 0, 60, { prefs.bottomRadius }, { prefs.bottomRadius = it }))
+                  col.addView(seek("Position horizontale (0 = centre)", -200, 200, { prefs.xOffset }, { prefs.xOffset = it }))
 
-                  col.addView(section("Position"))
-                  col.addView(seek("Horizontal (0 = centre)", -200, 200, { prefs.xOffset }, { prefs.xOffset = it }))
-                  col.addView(seek("Vertical", 0, 80, { prefs.topMargin }, { prefs.topMargin = it }))
-
-                  col.addView(section("Couleur du fond"))
+                  col.addView(section("Couleur de la forme"))
                   val colors = listOf(
                       0xFF000000.toInt() to "Noir",
                       0xFF1C1C1E.toInt() to "Gris foncé",
@@ -636,63 +466,30 @@ jobs:
                       0xFF3B1F6B.toInt() to "Violet",
                       0xFFFFFFFF.toInt() to "Blanc"
                   )
-                  col.addView(
-                      radios(colors.map { it.first.toString() to it.second }, prefs.bgColor.toString(), 2000) {
-                          prefs.bgColor = it.toInt()
-                      }
-                  )
-
-                  // ----- Contenu -----
-                  col.addView(section("Modules affichés quand on touche l'île"))
-                  col.addView(switch("Horloge + date", prefs.showClock) { prefs.showClock = it; reloadIsland() })
-                  col.addView(switch("Batterie", prefs.showBattery) { prefs.showBattery = it; reloadIsland() })
-                  col.addView(switch("Message perso", prefs.showText) { prefs.showText = it; reloadIsland() })
-                  col.addView(switch("Compteur (touche pour +1)", prefs.showCounter) { prefs.showCounter = it; reloadIsland() })
-                  col.addView(switch("Raccourci vers une appli", prefs.showLaunch) { prefs.showLaunch = it; reloadIsland() })
-
-                  col.addView(section("Message perso"))
-                  col.addView(field("Texte", prefs.customText, false) { prefs.customText = it; reloadIsland() })
-
-                  col.addView(section("Package de l'appli à ouvrir"))
-                  col.addView(field("ex : io.homeassistant.companion.android", prefs.launchPackage, false) {
-                      prefs.launchPackage = it; reloadIsland()
+                  col.addView(radios(colors.map { it.first.toString() to it.second }, prefs.bgColor.toString()) {
+                      prefs.bgColor = it.toInt()
                   })
-
-                  col.addView(section("Affichage quand l'île est repliée"))
-                  col.addView(
-                      radios(
-                          listOf("clock" to "Heure", "battery" to "Batterie", "text" to "Message perso"),
-                          prefs.collapsedMode, 1000
-                      ) { prefs.collapsedMode = it }
-                  )
+                  col.addView(switch("Cacher la forme quand il n'y a pas de notif", prefs.showOnlyWithLed) {
+                      prefs.showOnlyWithLed = it; reloadIsland()
+                  })
 
                   // ----- LED -----
-                  col.addView(section("LED de notifications"))
+                  col.addView(section("LED"))
                   col.addView(switch("LED activée", prefs.ledEnabled) {
-                      prefs.ledEnabled = it
-                      NotifListener.instance?.recompute()
-                      IslandAccessibilityService.instance?.reload()
+                      prefs.ledEnabled = it; recomputeLed(); reloadIsland()
                   })
                   col.addView(switch("LED qui pulse", prefs.ledPulse) { prefs.ledPulse = it; reloadIsland() })
-                  col.addView(switch("LED blanche pour les autres applis", prefs.ledOthers) {
-                      prefs.ledOthers = it
-                      NotifListener.instance?.recompute()
-                  })
+                  col.addView(seek("Taille de la LED", 4, 24, { prefs.ledSize }, { prefs.ledSize = it }))
                   col.addView(button("Tester la LED (6 s)") {
                       IslandBus.update(Color.GREEN, 1)
-                      handler.postDelayed({
-                          val l = NotifListener.instance
-                          if (l != null) l.recompute() else IslandBus.update(0, 0)
-                      }, 6000)
+                      handler.postDelayed({ restoreLed() }, 6000)
                   })
 
-                  col.addView(section("Couleurs par appli (une règle par ligne : package=#RRGGBB, la première trouvée gagne)"))
-                  col.addView(field("package=#RRGGBB", prefs.ledRules, true) {
-                      prefs.ledRules = it
-                      NotifListener.instance?.recompute()
-                  })
-                  lastPkg = TextView(this).apply { setPadding(0, dp(8), 0, 0) }
-                  col.addView(lastPkg)
+                  // ----- Couleur par appli -----
+                  col.addView(section("Couleur de la LED selon l'appli (touche une ligne pour changer)"))
+                  appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  col.addView(appList)
+                  col.addView(button("+ Ajouter une appli") { addApp() })
 
                   setContentView(ScrollView(this).apply { addView(col) })
               }
@@ -703,11 +500,182 @@ jobs:
                   val notif = NotifListener.instance != null
                   status.text = "Île : " + (if (acc) "active ✔" else "inactive ✘") +
                       "\nLED notifications : " + (if (notif) "active ✔" else "inactive ✘")
-                  lastPkg.text = "Dernière notif reçue : " +
-                      prefs.lastNotifPackage.ifEmpty { "aucune pour l'instant" }
+                  refreshApps()
+              }
+
+              // ---------- Liste des applis et couleurs ----------
+
+              private fun appLabel(pkg: String): String = try {
+                  packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+              } catch (_: Exception) {
+                  pkg
+              }
+
+              private fun refreshApps() {
+                  appList.removeAllViews()
+                  val def = prefs.ledDefaultColor
+                  appList.addView(row("Toutes les autres applis", "sans couleur définie", def) {
+                      pickColor("Autres applis", def, { c ->
+                          prefs.ledDefaultColor = c
+                          refreshApps()
+                          recomputeLed()
+                      }, null)
+                  })
+                  val rules = prefs.rules()
+                  val pkgs = (rules.keys + prefs.seenPackages)
+                      .distinct()
+                      .map { appLabel(it) to it }
+                      .sortedBy { it.first.lowercase() }
+                  pkgs.forEach { (label, pkg) ->
+                      val c = rules[pkg]
+                      appList.addView(
+                          row(label, if (c == null) "pas de couleur définie" else pkg, c ?: prefs.ledDefaultColor) {
+                              openPicker(pkg, label)
+                          }
+                      )
+                  }
+              }
+
+              private fun openPicker(pkg: String, label: String) {
+                  val has = prefs.rules().containsKey(pkg)
+                  pickColor(
+                      label,
+                      prefs.rules()[pkg] ?: Color.WHITE,
+                      { c ->
+                          prefs.setRule(pkg, c)
+                          refreshApps()
+                          recomputeLed()
+                      },
+                      if (has) ({
+                          prefs.removeRule(pkg)
+                          refreshApps()
+                          recomputeLed()
+                      }) else null
+                  )
+              }
+
+              private fun addApp() {
+                  val pm = packageManager
+                  val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                  val apps = pm.queryIntentActivities(intent, 0)
+                      .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+                      .distinctBy { it.second }
+                      .sortedBy { it.first.lowercase() }
+                  AlertDialog.Builder(this)
+                      .setTitle("Choisir une appli")
+                      .setItems(apps.map { it.first }.toTypedArray()) { _, i ->
+                          openPicker(apps[i].second, apps[i].first)
+                      }
+                      .show()
+              }
+
+              /** Sélecteur de couleur : la LED de l'île s'allume en direct pendant le choix */
+              private fun pickColor(title: String, current: Int, onOk: (Int) -> Unit, onRemove: (() -> Unit)?) {
+                  var color = if (current == 0) Color.WHITE else current
+                  val box = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(20), dp(8), dp(20), 0)
+                  }
+                  val preview = View(this)
+                  preview.setBackgroundColor(color)
+                  box.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
+
+                  fun choose(c: Int) {
+                      color = c
+                      preview.setBackgroundColor(c)
+                      IslandBus.update(c, 1)
+                  }
+
+                  val presets = listOf(
+                      "#25D366", "#2AABEE", "#EA4335", "#4285F4", "#FF3B30", "#E1306C",
+                      "#FFC107", "#FF9800", "#9C27B0", "#00E5FF", "#00FF00", "#FFFFFF"
+                  )
+                  presets.chunked(6).forEach { chunk ->
+                      val r = LinearLayout(this).apply {
+                          orientation = LinearLayout.HORIZONTAL
+                          setPadding(0, dp(8), 0, 0)
+                      }
+                      chunk.forEach { hex ->
+                          val c = Color.parseColor(hex)
+                          val sw = View(this)
+                          sw.background = GradientDrawable().apply {
+                              shape = GradientDrawable.OVAL
+                              setColor(c)
+                              setStroke(dp(1), Color.GRAY)
+                          }
+                          sw.setOnClickListener { choose(c) }
+                          r.addView(sw, LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                              setMargins(dp(3), 0, dp(3), 0)
+                          })
+                      }
+                      box.addView(r)
+                  }
+
+                  box.addView(TextView(this).apply {
+                      text = "Couleur libre"
+                      setPadding(0, dp(14), 0, 0)
+                  })
+                  val hue = SeekBar(this)
+                  hue.max = 360
+                  hue.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                      override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                          if (fromUser) choose(Color.HSVToColor(floatArrayOf(p.toFloat(), 1f, 1f)))
+                      }
+                      override fun onStartTrackingTouch(s: SeekBar?) {}
+                      override fun onStopTrackingTouch(s: SeekBar?) {}
+                  })
+                  box.addView(hue)
+
+                  val mute = Switch(this)
+                  mute.text = "Pas de LED"
+                  mute.isChecked = current == 0
+                  mute.setPadding(0, dp(14), 0, dp(8))
+                  box.addView(mute)
+
+                  choose(color)
+
+                  val b = AlertDialog.Builder(this)
+                      .setTitle(title)
+                      .setView(box)
+                      .setPositiveButton("OK") { _, _ -> onOk(if (mute.isChecked) 0 else color) }
+                      .setNegativeButton("Annuler", null)
+                  if (onRemove != null) b.setNeutralButton("Supprimer") { _, _ -> onRemove() }
+                  b.setOnDismissListener { restoreLed() }
+                  b.show()
               }
 
               // ---------- Petits helpers d'UI ----------
+
+              private fun row(title: String, sub: String, color: Int, onClick: () -> Unit): LinearLayout {
+                  val r = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      setPadding(0, dp(8), 0, dp(8))
+                      setOnClickListener { onClick() }
+                  }
+                  val sw = TextView(this).apply {
+                      gravity = Gravity.CENTER
+                      text = if (color == 0) "✕" else ""
+                      background = GradientDrawable().apply {
+                          shape = GradientDrawable.OVAL
+                          setColor(if (color == 0) Color.LTGRAY else color)
+                          setStroke(dp(1), Color.GRAY)
+                      }
+                  }
+                  val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  t.addView(TextView(this).apply {
+                      text = title
+                      textSize = 16f
+                  })
+                  t.addView(TextView(this).apply {
+                      text = sub
+                      textSize = 11f
+                      setTextColor(Color.GRAY)
+                  })
+                  r.addView(sw, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(14) })
+                  r.addView(t)
+                  return r
+              }
 
               private fun section(t: String) = TextView(this).apply {
                   text = t
@@ -731,46 +699,27 @@ jobs:
                   setOnCheckedChangeListener { _, c -> onChange(c) }
               }
 
-              private fun field(hint: String, value: String, multiline: Boolean, onChange: (String) -> Unit) =
-                  EditText(this).apply {
-                      this.hint = hint
-                      setText(value)
-                      if (multiline) {
-                          minLines = 6
-                          gravity = Gravity.TOP
-                          textSize = 12f
-                          typeface = Typeface.MONOSPACE
-                      } else {
-                          setSingleLine()
-                      }
-                      addTextChangedListener(object : TextWatcher {
-                          override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
-                          override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
-                          override fun afterTextChanged(s: Editable?) { onChange(s.toString()) }
-                      })
-                  }
-
               private fun radios(
                   options: List<Pair<String, String>>,
                   current: String,
-                  baseId: Int,
                   onPick: (String) -> Unit
               ): RadioGroup {
                   val g = RadioGroup(this)
                   options.forEachIndexed { i, (key, name) ->
                       g.addView(RadioButton(this).apply {
-                          id = baseId + i
+                          id = 5000 + i
                           text = name
                           isChecked = key == current
                       })
                   }
                   g.setOnCheckedChangeListener { _, id ->
-                      onPick(options[id - baseId].first)
+                      onPick(options[id - 5000].first)
                       reloadIsland()
                   }
                   return g
               }
 
+              /** Curseur : l'île se met à jour pendant que tu fais glisser */
               private fun seek(
                   title: String,
                   lo: Int,
@@ -790,9 +739,10 @@ jobs:
                           override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
                               set(p + lo)
                               tv.text = "$title : ${p + lo}"
+                              if (fromUser) reloadIsland()
                           }
                           override fun onStartTrackingTouch(s: SeekBar?) {}
-                          override fun onStopTrackingTouch(s: SeekBar?) { reloadIsland() }
+                          override fun onStopTrackingTouch(s: SeekBar?) {}
                       })
                   }
                   box.addView(tv)
@@ -807,7 +757,6 @@ jobs:
 
           import android.app.Notification
           import android.content.ComponentName
-          import android.graphics.Color
           import android.os.Build
           import android.service.notification.NotificationListenerService
           import android.service.notification.StatusBarNotification
@@ -836,8 +785,8 @@ jobs:
               }
 
               override fun onNotificationPosted(sbn: StatusBarNotification?) {
-                  if (sbn != null && sbn.packageName != packageName) {
-                      Prefs(this).lastNotifPackage = sbn.packageName
+                  if (sbn != null && sbn.packageName != packageName && !sbn.isOngoing) {
+                      Prefs(this).markSeen(sbn.packageName)
                   }
                   recompute()
               }
@@ -858,20 +807,26 @@ jobs:
                       null
                   } ?: return
 
+                  val rules = prefs.rules()
                   val relevant = active.filter {
                       it.packageName != packageName &&
                           !it.isOngoing &&
-                          (it.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0
+                          (it.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0 &&
+                          rules[it.packageName] != 0
                   }
 
                   var color = 0
-                  for ((pkg, c) in prefs.parseRules()) {
-                      if (relevant.any { it.packageName == pkg }) {
+                  for ((pkg, c) in rules) {
+                      if (c != 0 && relevant.any { it.packageName == pkg }) {
                           color = c
                           break
                       }
                   }
-                  if (color == 0 && prefs.ledOthers && relevant.isNotEmpty()) color = Color.WHITE
+                  if (color == 0 && prefs.ledDefaultColor != 0 &&
+                      relevant.any { !rules.containsKey(it.packageName) }
+                  ) {
+                      color = prefs.ledDefaultColor
+                  }
                   IslandBus.update(color, relevant.size)
               }
           }
@@ -901,84 +856,94 @@ jobs:
           com.instagram.android=#E1306C"""
               }
 
-              // ----- Modules -----
-              var showClock: Boolean
-                  get() = sp.getBoolean("clock", true)
-                  set(v) = putB("clock", v)
-              var showBattery: Boolean
-                  get() = sp.getBoolean("battery", true)
-                  set(v) = putB("battery", v)
-              var showText: Boolean
-                  get() = sp.getBoolean("text", true)
-                  set(v) = putB("text", v)
-              var showCounter: Boolean
-                  get() = sp.getBoolean("counter", false)
-                  set(v) = putB("counter", v)
-              var showLaunch: Boolean
-                  get() = sp.getBoolean("launch", false)
-                  set(v) = putB("launch", v)
-
-              var customText: String
-                  get() = sp.getString("customText", "Salut Pierre-Jean") ?: ""
-                  set(v) = putS("customText", v)
-              var launchPackage: String
-                  get() = sp.getString("launchPackage", "io.homeassistant.companion.android") ?: ""
-                  set(v) = putS("launchPackage", v)
-
-              /** "clock", "battery" ou "text" : ce qui s'affiche quand l'île est repliée */
-              var collapsedMode: String
-                  get() = sp.getString("collapsedMode", "clock") ?: "clock"
-                  set(v) = putS("collapsedMode", v)
-
-              // ----- Apparence -----
-              /** "pill" (capsule, arrondi réglable) ou "drop" (goutte) */
-              var shape: String
-                  get() = sp.getString("shape", "pill") ?: "pill"
-                  set(v) = putS("shape", v)
-              var radius: Int
-                  get() = sp.getInt("radius", 30)
-                  set(v) = putI("radius", v)
-              var collapsedWidth: Int
-                  get() = sp.getInt("collapsedWidth", 150)
-                  set(v) = putI("collapsedWidth", v)
-              var collapsedHeight: Int
-                  get() = sp.getInt("collapsedHeight", 34)
-                  set(v) = putI("collapsedHeight", v)
-              var topMargin: Int
-                  get() = sp.getInt("topMargin", 10)
-                  set(v) = putI("topMargin", v)
+              // ----- Forme (en dp) -----
+              var width: Int
+                  get() = sp.getInt("width", 44)
+                  set(v) = putI("width", v)
+              var height: Int
+                  get() = sp.getInt("height", 30)
+                  set(v) = putI("height", v)
+              /** Évasement des coins du haut (le raccord concave avec le bord de l'écran) */
+              var flare: Int
+                  get() = sp.getInt("flare", 8)
+                  set(v) = putI("flare", v)
+              /** Arrondi des coins du bas */
+              var bottomRadius: Int
+                  get() = sp.getInt("bottomRadius", 18)
+                  set(v) = putI("bottomRadius", v)
               var xOffset: Int
-                  get() = sp.getInt("xOffset", 0)
+                  get() = sp.getInt("xOffset", 70)
                   set(v) = putI("xOffset", v)
               var bgColor: Int
                   get() = sp.getInt("bgColor", Color.BLACK)
                   set(v) = putI("bgColor", v)
+              var showOnlyWithLed: Boolean
+                  get() = sp.getBoolean("showOnlyWithLed", false)
+                  set(v) = putB("showOnlyWithLed", v)
 
-              // ----- LED de notifications -----
+              // ----- LED -----
               var ledEnabled: Boolean
                   get() = sp.getBoolean("ledEnabled", true)
                   set(v) = putB("ledEnabled", v)
               var ledPulse: Boolean
                   get() = sp.getBoolean("ledPulse", true)
                   set(v) = putB("ledPulse", v)
-              var ledOthers: Boolean
-                  get() = sp.getBoolean("ledOthers", true)
-                  set(v) = putB("ledOthers", v)
-              var ledRules: String
+              var ledSize: Int
+                  get() = sp.getInt("ledSize", 10)
+                  set(v) = putI("ledSize", v)
+
+              /** Couleur pour les applis sans règle (0 = pas de LED) */
+              var ledDefaultColor: Int
+                  get() = sp.getInt("ledDefaultColor", Color.WHITE)
+                  set(v) = putI("ledDefaultColor", v)
+
+              private var ledRules: String
                   get() = sp.getString("ledRules", DEFAULT_RULES) ?: DEFAULT_RULES
                   set(v) = putS("ledRules", v)
-              var lastNotifPackage: String
-                  get() = sp.getString("lastNotifPackage", "") ?: ""
-                  set(v) = putS("lastNotifPackage", v)
 
-              /** Règles "package=#RRGGBB", une par ligne, dans l'ordre de priorité */
-              fun parseRules(): List<Pair<String, Int>> = ledRules.lines().mapNotNull { line ->
-                  val parts = line.trim().split("=")
-                  if (parts.size != 2) return@mapNotNull null
-                  try {
-                      Pair(parts[0].trim(), Color.parseColor(parts[1].trim()))
-                  } catch (_: Exception) {
-                      null
+              var seenPackages: Set<String>
+                  get() = sp.getStringSet("seen", emptySet()) ?: emptySet()
+                  set(v) {
+                      sp.edit().putStringSet("seen", HashSet(v)).apply()
+                  }
+
+              fun markSeen(pkg: String) {
+                  val s = HashSet(seenPackages)
+                  if (s.add(pkg)) seenPackages = s
+              }
+
+              // ----- Règles couleur par appli (0 = pas de LED pour cette appli) -----
+              fun rules(): LinkedHashMap<String, Int> {
+                  val m = LinkedHashMap<String, Int>()
+                  ledRules.lines().forEach { line ->
+                      val parts = line.trim().split("=")
+                      if (parts.size == 2) {
+                          val v = parts[1].trim()
+                          try {
+                              m[parts[0].trim()] = if (v == "off") 0 else Color.parseColor(v)
+                          } catch (_: Exception) {
+                          }
+                      }
+                  }
+                  return m
+              }
+
+              fun setRule(pkg: String, color: Int) {
+                  val m = rules()
+                  m[pkg] = color
+                  saveRules(m)
+              }
+
+              fun removeRule(pkg: String) {
+                  val m = rules()
+                  m.remove(pkg)
+                  saveRules(m)
+              }
+
+              private fun saveRules(m: Map<String, Int>) {
+                  ledRules = m.entries.joinToString("\n") { e ->
+                      if (e.value == 0) "${e.key}=off"
+                      else e.key + "=" + String.format("#%06X", e.value and 0xFFFFFF)
                   }
               }
           }
