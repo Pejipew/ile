@@ -254,7 +254,6 @@ jobs:
                   val params = lp ?: return
 
                   bg.set(dp(prefs.flare).toFloat(), dp(prefs.bottomRadius).toFloat(), prefs.bgColor)
-                  v.setPadding(0, dp(prefs.flare), 0, 0)
 
                   val ledLp = ledView.layoutParams as FrameLayout.LayoutParams
                   ledLp.width = dp(prefs.ledWidth)
