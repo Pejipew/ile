@@ -54,6 +54,8 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+              <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
               <queries>
                   <intent>
                       <action android:name="android.intent.action.MAIN" />
@@ -139,6 +141,11 @@ jobs:
                   controller?.applyLive()
               }
 
+              /** Relit la source de la LED (notifications ou signal mobile) */
+              fun refreshSource() {
+                  controller?.updateSource()
+              }
+
               override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 
               override fun onInterrupt() {}
@@ -172,6 +179,10 @@ jobs:
               @Volatile
               var count: Int = 0
 
+              /** Vrai pendant l'aperçu d'une couleur : les mises à jour automatiques attendent */
+              @Volatile
+              var hold: Boolean = false
+
               var onChange: (() -> Unit)? = null
               private val main = Handler(Looper.getMainLooper())
 
@@ -192,6 +203,9 @@ jobs:
           import android.graphics.PixelFormat
           import android.graphics.drawable.GradientDrawable
           import android.os.Build
+          import android.os.Handler
+          import android.os.Looper
+          import android.telephony.TelephonyManager
           import android.view.Gravity
           import android.view.View
           import android.view.ViewGroup
@@ -208,6 +222,41 @@ jobs:
               private var ledAnim: ObjectAnimator? = null
               private var root: FrameLayout? = null
               private var lp: WindowManager.LayoutParams? = null
+              private val handler = Handler(Looper.getMainLooper())
+
+              private val signalPoll = object : Runnable {
+                  override fun run() {
+                      if (prefs.ledMode != "signal") return
+                      if (!IslandBus.hold) {
+                          val level = signalLevel()
+                          if (level < 0) IslandBus.update(0, 0)
+                          else IslandBus.update(prefs.signalColor(level), level)
+                      }
+                      handler.postDelayed(this, 2000)
+                  }
+              }
+
+              /** Niveau de signal de 0 à 4, ou -1 si indisponible (permission refusée, etc.) */
+              private fun signalLevel(): Int {
+                  if (Build.VERSION.SDK_INT < 28) return -1
+                  return try {
+                      val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+                      tm.signalStrength?.level ?: -1
+                  } catch (_: Exception) {
+                      -1
+                  }
+              }
+
+              /** Choisit la source de la LED selon le mode réglé dans l'appli */
+              fun updateSource() {
+                  handler.removeCallbacks(signalPoll)
+                  if (prefs.ledMode == "signal") {
+                      signalPoll.run()
+                  } else {
+                      val l = NotifListener.instance
+                      if (l != null) l.recompute() else IslandBus.update(0, 0)
+                  }
+              }
 
               private fun dp(v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
 
@@ -240,9 +289,11 @@ jobs:
                   lp = params
                   wm.addView(v, params)
                   applyLive()
+                  updateSource()
               }
 
               fun stop() {
+                  handler.removeCallbacksAndMessages(null)
                   ledAnim?.cancel()
                   root?.let { try { wm.removeView(it) } catch (_: Exception) {} }
                   root = null
@@ -385,9 +436,11 @@ jobs:
           cat > app/src/main/java/com/example/island/MainActivity.kt <<'KOTLIN_EOF'
           package com.example.island
 
+          import android.Manifest
           import android.app.Activity
           import android.app.AlertDialog
           import android.content.Intent
+          import android.content.pm.PackageManager
           import android.graphics.Color
           import android.graphics.drawable.GradientDrawable
           import android.os.Bundle
@@ -414,6 +467,7 @@ jobs:
               private val handler = Handler(Looper.getMainLooper())
               private var preview = true
               private var inForeground = false
+              private lateinit var signalList: LinearLayout
 
               private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -427,6 +481,10 @@ jobs:
               }
 
               private fun restoreLed() {
+                  if (prefs.ledMode == "signal") {
+                      IslandAccessibilityService.instance?.refreshSource()
+                      return
+                  }
                   if (preview && inForeground) {
                       IslandBus.update(Color.GREEN, 1)
                       return
@@ -483,6 +541,22 @@ jobs:
 
                   // ----- LED -----
                   col.addView(section("LED"))
+                  col.addView(section("Ce que montre la LED"))
+                  col.addView(
+                      radios(
+                          listOf("notif" to "Notifications", "signal" to "Qualité du signal mobile"),
+                          prefs.ledMode
+                      ) {
+                          prefs.ledMode = it
+                          if (it == "signal" &&
+                              checkSelfPermission(Manifest.permission.READ_PHONE_STATE) !=
+                              PackageManager.PERMISSION_GRANTED
+                          ) {
+                              requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 7)
+                          }
+                          IslandAccessibilityService.instance?.refreshSource()
+                      }
+                  )
                   col.addView(switch("LED activée", prefs.ledEnabled) {
                       prefs.ledEnabled = it; recomputeLed(); reloadIsland()
                   })
@@ -500,13 +574,27 @@ jobs:
                       handler.postDelayed({ restoreLed() }, 6000)
                   })
 
+                  // ----- Couleurs du signal mobile -----
+                  col.addView(section("Couleurs du signal mobile (touche pour changer)"))
+                  signalList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  col.addView(signalList)
+
                   // ----- Couleur par appli -----
-                  col.addView(section("Couleur de la LED selon l'appli (touche une ligne pour changer)"))
+                  col.addView(section("Mode notifications : couleur de la LED selon l'appli (touche une ligne pour changer)"))
                   appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                   col.addView(appList)
                   col.addView(button("+ Ajouter une appli") { addApp() })
 
                   setContentView(ScrollView(this).apply { addView(col) })
+              }
+
+              override fun onRequestPermissionsResult(
+                  requestCode: Int,
+                  permissions: Array<out String>,
+                  grantResults: IntArray
+              ) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                  IslandAccessibilityService.instance?.refreshSource()
               }
 
               override fun onPause() {
@@ -524,9 +612,27 @@ jobs:
                   status.text = "Île : " + (if (acc) "active ✔" else "inactive ✘") +
                       "\nLED notifications : " + (if (notif) "active ✔" else "inactive ✘")
                   refreshApps()
+                  refreshSignal()
               }
 
               // ---------- Liste des applis et couleurs ----------
+
+              private fun refreshSignal() {
+                  signalList.removeAllViews()
+                  val names = listOf(
+                      "Aucun signal (0/4)", "Très faible (1/4)", "Faible (2/4)", "Bon (3/4)", "Excellent (4/4)"
+                  )
+                  names.forEachIndexed { i, n ->
+                      val c = prefs.signalColor(i)
+                      signalList.addView(row(n, "", c) {
+                          pickColor(n, c, { nc ->
+                              prefs.setSignalColor(i, nc)
+                              refreshSignal()
+                              restoreLed()
+                          }, null)
+                      })
+                  }
+              }
 
               private fun appLabel(pkg: String): String = try {
                   packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
@@ -655,6 +761,7 @@ jobs:
                   mute.setPadding(0, dp(14), 0, dp(8))
                   box.addView(mute)
 
+                  IslandBus.hold = true
                   choose(color)
 
                   val b = AlertDialog.Builder(this)
@@ -663,7 +770,10 @@ jobs:
                       .setPositiveButton("OK") { _, _ -> onOk(if (mute.isChecked) 0 else color) }
                       .setNegativeButton("Annuler", null)
                   if (onRemove != null) b.setNeutralButton("Supprimer") { _, _ -> onRemove() }
-                  b.setOnDismissListener { restoreLed() }
+                  b.setOnDismissListener {
+                      IslandBus.hold = false
+                      restoreLed()
+                  }
                   b.show()
               }
 
@@ -798,7 +908,7 @@ jobs:
 
               override fun onListenerDisconnected() {
                   instance = null
-                  IslandBus.update(0, 0)
+                  if (Prefs(this).ledMode == "notif") IslandBus.update(0, 0)
                   if (Build.VERSION.SDK_INT >= 24) {
                       try {
                           requestRebind(ComponentName(this, NotifListener::class.java))
@@ -820,6 +930,7 @@ jobs:
 
               fun recompute() {
                   val prefs = Prefs(this)
+                  if (prefs.ledMode != "notif" || IslandBus.hold) return
                   if (!prefs.ledEnabled) {
                       IslandBus.update(0, 0)
                       return
@@ -877,6 +988,14 @@ jobs:
           com.google.android.dialer=#FF3B30
           com.android.incallui=#FF3B30
           com.instagram.android=#E1306C"""
+
+                  val DEFAULT_SIGNAL = intArrayOf(
+                      Color.parseColor("#FF3B30"),
+                      Color.parseColor("#FF9500"),
+                      Color.parseColor("#FFD60A"),
+                      Color.parseColor("#7ED957"),
+                      Color.parseColor("#00E676")
+                  )
               }
 
               // ----- Forme (en dp) -----
@@ -908,6 +1027,16 @@ jobs:
               var ledEnabled: Boolean
                   get() = sp.getBoolean("ledEnabled", true)
                   set(v) = putB("ledEnabled", v)
+              /** "notif" (notifications) ou "signal" (qualité du signal mobile) */
+              var ledMode: String
+                  get() = sp.getString("ledMode", "notif") ?: "notif"
+                  set(v) = putS("ledMode", v)
+
+              fun signalColor(level: Int): Int =
+                  sp.getInt("sig$level", DEFAULT_SIGNAL[level.coerceIn(0, 4)])
+
+              fun setSignalColor(level: Int, c: Int) = putI("sig$level", c)
+
               var ledPulse: Boolean
                   get() = sp.getBoolean("ledPulse", true)
                   set(v) = putB("ledPulse", v)
