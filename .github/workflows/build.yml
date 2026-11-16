@@ -179,6 +179,10 @@ jobs:
               @Volatile
               var count: Int = 0
 
+              /** Vrai : la LED clignote franchement (ex : plus de signal mobile) */
+              @Volatile
+              var blink: Boolean = false
+
               /** Vrai pendant l'aperçu d'une couleur : les mises à jour automatiques attendent */
               @Volatile
               var hold: Boolean = false
@@ -186,9 +190,10 @@ jobs:
               var onChange: (() -> Unit)? = null
               private val main = Handler(Looper.getMainLooper())
 
-              fun update(color: Int, count: Int) {
+              fun update(color: Int, count: Int, blink: Boolean = false) {
                   ledColor = color
                   this.count = count
+                  this.blink = blink
                   main.post { onChange?.invoke() }
               }
           }
@@ -224,13 +229,31 @@ jobs:
               private var lp: WindowManager.LayoutParams? = null
               private val handler = Handler(Looper.getMainLooper())
 
+              private var blinking = false
+              private var blinkOn = false
+              private val blinker = object : Runnable {
+                  override fun run() {
+                      if (!blinking) return
+                      blinkOn = !blinkOn
+                      ledView.alpha = if (blinkOn) 1f else 0f
+                      handler.postDelayed(this, 500)
+                  }
+              }
+
+              private fun stopBlink() {
+                  if (blinking) {
+                      blinking = false
+                      handler.removeCallbacks(blinker)
+                  }
+              }
+
               private val signalPoll = object : Runnable {
                   override fun run() {
                       if (prefs.ledMode != "signal") return
                       if (!IslandBus.hold) {
                           val level = signalLevel()
                           if (level < 0) IslandBus.update(0, 0)
-                          else IslandBus.update(prefs.signalColor(level), level)
+                          else IslandBus.update(prefs.signalColor(level), level, level == 0)
                       }
                       handler.postDelayed(this, 2000)
                   }
@@ -241,7 +264,7 @@ jobs:
                   if (Build.VERSION.SDK_INT < 28) return -1
                   return try {
                       val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-                      tm.signalStrength?.level ?: -1
+                      tm.signalStrength?.level ?: 0
                   } catch (_: Exception) {
                       -1
                   }
@@ -294,6 +317,7 @@ jobs:
 
               fun stop() {
                   handler.removeCallbacksAndMessages(null)
+                  blinking = false
                   ledAnim?.cancel()
                   root?.let { try { wm.removeView(it) } catch (_: Exception) {} }
                   root = null
@@ -337,20 +361,30 @@ jobs:
                           cornerRadius = dp(prefs.ledRadius).toFloat()
                           setColor(c)
                       }
-                      if (prefs.ledPulse) {
-                          if (ledAnim == null) {
-                              ledAnim = ObjectAnimator.ofFloat(ledView, "alpha", 1f, 0.2f).apply {
-                                  duration = 700
-                                  repeatMode = ValueAnimator.REVERSE
-                                  repeatCount = ValueAnimator.INFINITE
-                              }
-                          }
-                          if (ledAnim?.isRunning != true) ledAnim?.start()
-                      } else {
+                      if (IslandBus.blink) {
                           ledAnim?.cancel()
-                          ledView.alpha = 1f
+                          if (!blinking) {
+                              blinking = true
+                              handler.post(blinker)
+                          }
+                      } else {
+                          stopBlink()
+                          if (prefs.ledPulse) {
+                              if (ledAnim == null) {
+                                  ledAnim = ObjectAnimator.ofFloat(ledView, "alpha", 1f, 0.2f).apply {
+                                      duration = 700
+                                      repeatMode = ValueAnimator.REVERSE
+                                      repeatCount = ValueAnimator.INFINITE
+                                  }
+                              }
+                              if (ledAnim?.isRunning != true) ledAnim?.start()
+                          } else {
+                              ledAnim?.cancel()
+                              ledView.alpha = 1f
+                          }
                       }
                   } else {
+                      stopBlink()
                       ledAnim?.cancel()
                       ledView.alpha = 1f
                       ledView.visibility = View.INVISIBLE
@@ -496,6 +530,14 @@ jobs:
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   prefs = Prefs(this)
+
+                  // Le mode signal mobile est actif par défaut : on demande l'autorisation dès le début
+                  if (prefs.ledMode == "signal" &&
+                      checkSelfPermission(Manifest.permission.READ_PHONE_STATE) !=
+                      PackageManager.PERMISSION_GRANTED
+                  ) {
+                      requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 7)
+                  }
 
                   val col = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
@@ -666,7 +708,6 @@ jobs:
               }
 
               private fun openPicker(pkg: String, label: String) {
-                  val has = prefs.rules().containsKey(pkg)
                   pickColor(
                       label,
                       prefs.rules()[pkg] ?: Color.WHITE,
@@ -675,11 +716,11 @@ jobs:
                           refreshApps()
                           recomputeLed()
                       },
-                      if (has) ({
-                          prefs.removeRule(pkg)
+                      {
+                          prefs.hidePackage(pkg)
                           refreshApps()
                           recomputeLed()
-                      }) else null
+                      }
                   )
               }
 
@@ -980,21 +1021,14 @@ jobs:
               private fun putS(k: String, v: String) = sp.edit().putString(k, v).apply()
 
               companion object {
-                  const val DEFAULT_RULES = """com.whatsapp=#25D366
-          org.telegram.messenger=#2AABEE
-          com.google.android.gm=#EA4335
-          com.google.android.apps.messaging=#4285F4
-          com.android.mms=#4285F4
-          com.google.android.dialer=#FF3B30
-          com.android.incallui=#FF3B30
-          com.instagram.android=#E1306C"""
+                  const val DEFAULT_RULES = ""
 
                   val DEFAULT_SIGNAL = intArrayOf(
                       Color.parseColor("#FF3B30"),
                       Color.parseColor("#FF9500"),
-                      Color.parseColor("#FFD60A"),
-                      Color.parseColor("#7ED957"),
-                      Color.parseColor("#00E676")
+                      Color.parseColor("#FFFF00"),
+                      Color.parseColor("#00FF00"),
+                      Color.parseColor("#007AFF")
                   )
               }
 
@@ -1003,15 +1037,15 @@ jobs:
                   get() = sp.getInt("width", 44)
                   set(v) = putI("width", v)
               var height: Int
-                  get() = sp.getInt("height", 30)
+                  get() = sp.getInt("height", 22)
                   set(v) = putI("height", v)
               /** Évasement des coins du haut (le raccord concave avec le bord de l'écran) */
               var flare: Int
-                  get() = sp.getInt("flare", 8)
+                  get() = sp.getInt("flare", 30)
                   set(v) = putI("flare", v)
               /** Arrondi des coins du bas */
               var bottomRadius: Int
-                  get() = sp.getInt("bottomRadius", 18)
+                  get() = sp.getInt("bottomRadius", 60)
                   set(v) = putI("bottomRadius", v)
               var xOffset: Int
                   get() = sp.getInt("xOffset", 70)
@@ -1029,7 +1063,7 @@ jobs:
                   set(v) = putB("ledEnabled", v)
               /** "notif" (notifications) ou "signal" (qualité du signal mobile) */
               var ledMode: String
-                  get() = sp.getString("ledMode", "notif") ?: "notif"
+                  get() = sp.getString("ledMode", "signal") ?: "signal"
                   set(v) = putS("ledMode", v)
 
               fun signalColor(level: Int): Int =
@@ -1038,7 +1072,7 @@ jobs:
               fun setSignalColor(level: Int, c: Int) = putI("sig$level", c)
 
               var ledPulse: Boolean
-                  get() = sp.getBoolean("ledPulse", true)
+                  get() = sp.getBoolean("ledPulse", false)
                   set(v) = putB("ledPulse", v)
               var ledWidth: Int
                   get() = sp.getInt("ledWidth", 10)
@@ -1060,7 +1094,7 @@ jobs:
 
               /** Couleur pour les applis sans règle (0 = pas de LED) */
               var ledDefaultColor: Int
-                  get() = sp.getInt("ledDefaultColor", Color.WHITE)
+                  get() = sp.getInt("ledDefaultColor", 0)
                   set(v) = putI("ledDefaultColor", v)
 
               private var ledRules: String
@@ -1073,9 +1107,29 @@ jobs:
                       sp.edit().putStringSet("seen", HashSet(v)).apply()
                   }
 
+              var hiddenPackages: Set<String>
+                  get() = sp.getStringSet("hidden", emptySet()) ?: emptySet()
+                  set(v) {
+                      sp.edit().putStringSet("hidden", HashSet(v)).apply()
+                  }
+
               fun markSeen(pkg: String) {
+                  if (hiddenPackages.contains(pkg)) return
                   val s = HashSet(seenPackages)
                   if (s.add(pkg)) seenPackages = s
+              }
+
+              /** Retire une appli de la liste : sa règle disparaît et elle n'y revient plus toute seule */
+              fun hidePackage(pkg: String) {
+                  removeRule(pkg)
+                  seenPackages = HashSet(seenPackages).apply { remove(pkg) }
+                  hiddenPackages = HashSet(hiddenPackages).apply { add(pkg) }
+              }
+
+              fun unhidePackage(pkg: String) {
+                  if (hiddenPackages.contains(pkg)) {
+                      hiddenPackages = HashSet(hiddenPackages).apply { remove(pkg) }
+                  }
               }
 
               // ----- Règles couleur par appli (0 = pas de LED pour cette appli) -----
@@ -1095,6 +1149,7 @@ jobs:
               }
 
               fun setRule(pkg: String, color: Int) {
+                  unhidePackage(pkg)
                   val m = rules()
                   m[pkg] = color
                   saveRules(m)
