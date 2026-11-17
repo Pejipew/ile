@@ -660,6 +660,7 @@ jobs:
                   col.addView(button("2. Activer l'accès aux notifications (LED)") {
                       startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                   })
+                  col.addView(button("3. Autoriser « Téléphone » (signal et type de réseau)") { askPhone() })
 
                   // ----- Encoche 1 : forme (réglages en pixels, en direct) -----
                   col.addView(section("Encoche 1 (LED) : forme, réglage au pixel près en direct"))
@@ -747,7 +748,9 @@ jobs:
                   grantResults: IntArray
               ) {
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                  prefs.askedPhone = true
                   IslandAccessibilityService.instance?.refreshSource()
+                  refreshStatus()
               }
 
               override fun onPause() {
@@ -760,14 +763,43 @@ jobs:
                   super.onResume()
                   inForeground = true
                   restoreLed()
-                  val acc = IslandAccessibilityService.instance != null
-                  val notif = NotifListener.instance != null
-                  status.text = "Île : " + (if (acc) "active ✔" else "inactive ✘") +
-                      "\nLED notifications : " + (if (notif) "active ✔" else "inactive ✘")
+                  refreshStatus()
                   refreshBg()
                   refreshApps()
                   refreshSignal()
                   refreshNet()
+              }
+
+              private fun hasPhonePermission() =
+                  checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+
+              private fun refreshStatus() {
+                  val acc = IslandAccessibilityService.instance != null
+                  val notif = NotifListener.instance != null
+                  status.text = "Île : " + (if (acc) "active ✔" else "inactive ✘") +
+                      "\nLED notifications : " + (if (notif) "active ✔" else "inactive ✘") +
+                      "\nAutorisation Téléphone : " + (if (hasPhonePermission()) "accordée ✔" else "refusée ✘")
+              }
+
+              /** Redemande l'autorisation Téléphone, ou ouvre les réglages de l'appli si elle est bloquée */
+              private fun askPhone() {
+                  if (hasPhonePermission()) {
+                      IslandAccessibilityService.instance?.refreshSource()
+                      refreshStatus()
+                      return
+                  }
+                  if (prefs.askedPhone &&
+                      !shouldShowRequestPermissionRationale(Manifest.permission.READ_PHONE_STATE)
+                  ) {
+                      startActivity(
+                          Intent(
+                              Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                              android.net.Uri.parse("package:$packageName")
+                          )
+                      )
+                  } else {
+                      requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 7)
+                  }
               }
 
               // ---------- Couleurs du fond (cercle chromatique) ----------
@@ -1156,7 +1188,9 @@ jobs:
           cat > app/src/main/java/com/example/island/NetworkIsland.kt <<'KOTLIN_EOF'
           package com.example.island
 
+          import android.Manifest
           import android.content.Context
+          import android.content.pm.PackageManager
           import android.graphics.Color
           import android.graphics.PixelFormat
           import android.graphics.Typeface
@@ -1284,8 +1318,11 @@ jobs:
               // ---------- Type de réseau ----------
 
               private fun updateText() {
+                  val hasPerm = ctx.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
+                      PackageManager.PERMISSION_GRANTED
                   val key = networkKey()
-                  textView.text = if (key == "none") "—" else key
+                  // "?" = autorisation Téléphone manquante, "—" = vraiment aucun service
+                  textView.text = if (!hasPerm) "?" else if (key == "none") "—" else key
                   val c = when {
                       previewColor != 0 -> previewColor
                       prefs.n2Colored -> prefs.netColor(key)
@@ -1295,13 +1332,26 @@ jobs:
                   textView.setTextColor(c)
               }
 
-              private fun networkKey(): String {
-                  val dt = try {
+              /**
+               * Réseau réellement utilisé : d'abord le réseau de données, puis (si le téléphone ne
+               * le donne pas, par exemple en Wi-Fi ou données mobiles coupées) le réseau voix,
+               * puis le réseau enregistré.
+               */
+              @Suppress("DEPRECATION")
+              private fun realNetworkType(): Int {
+                  return try {
                       val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-                      tm.dataNetworkType
+                      var t = tm.dataNetworkType
+                      if (t == TelephonyManager.NETWORK_TYPE_UNKNOWN) t = tm.voiceNetworkType
+                      if (t == TelephonyManager.NETWORK_TYPE_UNKNOWN) t = tm.networkType
+                      t
                   } catch (_: Exception) {
                       TelephonyManager.NETWORK_TYPE_UNKNOWN
                   }
+              }
+
+              private fun networkKey(): String {
+                  val dt = realNetworkType()
                   if (dt == TelephonyManager.NETWORK_TYPE_UNKNOWN) return "none"
 
                   // Par défaut : type de réseau réel. L'étiquette "5G" annoncée par l'opérateur
@@ -1625,6 +1675,11 @@ jobs:
                       else e.key + "=" + String.format("#%06X", e.value and 0xFFFFFF)
                   }
               }
+
+              /** Vrai une fois que la demande d'autorisation Téléphone a été affichée au moins une fois */
+              var askedPhone: Boolean
+                  get() = sp.getBoolean("askedPhone", false)
+                  set(v) = putB("askedPhone", v)
 
               // ----- Encoche 2 : type de réseau -----
               var n2Enabled: Boolean
