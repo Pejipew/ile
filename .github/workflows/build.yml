@@ -55,6 +55,7 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
               <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+              <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
               <application
                   android:allowBackup="true"
@@ -82,6 +83,16 @@ jobs:
                       <meta-data
                           android:name="android.accessibilityservice"
                           android:resource="@xml/accessibility_config" />
+                  </service>
+
+                  <service
+                      android:name=".NotifListener"
+                      android:exported="true"
+                      android:label="Custom Island notifications"
+                      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.service.notification.NotificationListenerService" />
+                      </intent-filter>
                   </service>
               </application>
           </manifest>
@@ -205,7 +216,7 @@ jobs:
           import android.view.accessibility.AccessibilityEvent
 
           /**
-           * Héberge l'encoche. Un service d'accessibilité peut afficher une fenêtre
+           * Héberge les encoches. Un service d'accessibilité peut afficher des fenêtres
            * au-dessus de tout (y compris le tiroir de notifications) et reste
            * actif en permanence.
            */
@@ -217,22 +228,31 @@ jobs:
               }
 
               private var controller: IslandController? = null
+              private var notifIsland: NotifIsland? = null
 
               override fun onServiceConnected() {
                   super.onServiceConnected()
                   instance = this
-                  val c = IslandController(this, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+                  val type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+
+                  val c = IslandController(this, type)
                   controller = c
                   IslandBus.onChange = { c.refreshLed() }
                   c.start()
+
+                  val n = NotifIsland(this, type)
+                  notifIsland = n
+                  NotifState.onChange = { n.refresh() }
+                  n.start()
               }
 
-              /** Applique les réglages en direct, sans recréer la fenêtre */
+              /** Applique les réglages en direct, sans recréer les fenêtres */
               fun reload() {
                   controller?.applyLive()
+                  notifIsland?.applyLive()
               }
 
-              /** Relit la source de la LED (notifications ou signal mobile) */
+              /** Relit le niveau de signal et remet la LED à sa vraie couleur */
               fun refreshSource() {
                   controller?.updateSource()
               }
@@ -244,12 +264,16 @@ jobs:
               override fun onConfigurationChanged(newConfig: Configuration) {
                   super.onConfigurationChanged(newConfig)
                   controller?.applyLive()
+                  notifIsland?.applyLive()
               }
 
               override fun onUnbind(intent: Intent?): Boolean {
                   IslandBus.onChange = null
+                  NotifState.onChange = null
                   controller?.stop()
+                  notifIsland?.stop()
                   controller = null
+                  notifIsland = null
                   instance = null
                   return super.onUnbind(intent)
               }
@@ -548,6 +572,7 @@ jobs:
           import android.view.View
           import android.view.ViewGroup
           import android.widget.Button
+          import android.widget.ImageView
           import android.widget.LinearLayout
           import android.widget.ScrollView
           import android.widget.SeekBar
@@ -560,6 +585,8 @@ jobs:
               private lateinit var status: TextView
               private lateinit var signalList: LinearLayout
               private lateinit var bg1: LinearLayout
+              private lateinit var bg3: LinearLayout
+              private lateinit var appsList: LinearLayout
               private val handler = Handler(Looper.getMainLooper())
 
               private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -602,6 +629,9 @@ jobs:
                       startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                   })
                   col.addView(button("2. Autoriser « Téléphone » (niveau de signal)") { askPhone() })
+                  col.addView(button("3. Activer l'accès aux notifications (icônes)") {
+                      startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                  })
 
                   // ----- Encoche : forme (réglages en pixels, en direct) -----
                   col.addView(section("Encoche : forme, réglage au pixel près en direct"))
@@ -633,6 +663,50 @@ jobs:
                   signalList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                   col.addView(signalList)
 
+                  // ----- Encoche notifications (icônes) -----
+                  col.addView(section("Encoche notifications (icônes) : forme, réglage au pixel près en direct"))
+                  col.addView(switch("Encoche notifications activée", prefs.ntEnabled) { prefs.ntEnabled = it; reloadIsland() })
+                  col.addView(seek("Largeur", 40, 300, { prefs.ntWidth }, { prefs.ntWidth = it }))
+                  col.addView(seek("Hauteur", 16, 80, { prefs.ntHeight }, { prefs.ntHeight = it }))
+                  col.addView(seek("Évasement du haut", 0, 30, { prefs.ntFlare }, { prefs.ntFlare = it }))
+                  col.addView(seek("Arrondi du bas", 0, 60, { prefs.ntRadius }, { prefs.ntRadius = it }))
+                  col.addView(seek("Position horizontale (0 = centre)", -200, 200, { prefs.ntX }, { prefs.ntX = it }))
+                  bg3 = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  col.addView(bg3)
+                  col.addView(switch("Cacher la forme quand il n'y a aucune notification", prefs.ntHideEmpty) {
+                      prefs.ntHideEmpty = it; reloadIsland()
+                  })
+
+                  col.addView(section("Icônes"))
+                  col.addView(seek("Nombre d'icônes max (replié)", 1, 12, { prefs.ntMaxIcons }, { prefs.ntMaxIcons = it }, " icônes"))
+                  col.addView(seek("Taille des icônes (replié)", 8, 48, { prefs.ntIconSize }, { prefs.ntIconSize = it }))
+                  col.addView(seek("Espacement entre les icônes", 0, 20, { prefs.ntIconGap }, { prefs.ntIconGap = it }))
+                  col.addView(switch("Pastille avec le nombre de notifications", prefs.ntShowBadge) {
+                      prefs.ntShowBadge = it; reloadIsland()
+                  })
+
+                  col.addView(section("Panneau déployé (quand tu glisses vers le bas)"))
+                  col.addView(seek("Largeur", 100, 400, { prefs.ntExpWidth }, { prefs.ntExpWidth = it }))
+                  col.addView(seek("Hauteur", 40, 400, { prefs.ntExpHeight }, { prefs.ntExpHeight = it }))
+                  col.addView(seek("Position horizontale (0 = centre)", -200, 200, { prefs.ntExpX }, { prefs.ntExpX = it }))
+                  col.addView(seek("Taille des icônes (déployé)", 16, 64, { prefs.ntExpIconSize }, { prefs.ntExpIconSize = it }))
+                  col.addView(seek("Repli automatique (0 = jamais)", 0, 30, { prefs.ntAutoCollapse }, { prefs.ntAutoCollapse = it }, " s"))
+
+                  col.addView(section("Zone de glissement : là où tu touches pour déployer (bleue quand l'appli est ouverte)"))
+                  col.addView(seek("Largeur", 20, 300, { prefs.zoneWidth }, { prefs.zoneWidth = it }))
+                  col.addView(seek("Hauteur", 10, 150, { prefs.zoneHeight }, { prefs.zoneHeight = it }))
+                  col.addView(seek("Position horizontale (0 = centre)", -200, 200, { prefs.zoneX }, { prefs.zoneX = it }))
+                  col.addView(seek("Position verticale", 0, 150, { prefs.zoneY }, { prefs.zoneY = it }))
+                  col.addView(switch("Toujours afficher la zone en bleu", prefs.zoneAlways) {
+                      prefs.zoneAlways = it; reloadIsland()
+                  })
+
+                  col.addView(section("Applis : priorité et blocage"))
+                  appsList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  col.addView(appsList)
+                  col.addView(button("+ Ajouter une appli prioritaire") { addApp() })
+                  col.addView(button("Tester avec des icônes factices (8 s)") { testIcons() })
+
                   setContentView(ScrollView(this).apply { addView(col) })
               }
 
@@ -647,17 +721,27 @@ jobs:
                   refreshStatus()
               }
 
+              override fun onPause() {
+                  super.onPause()
+                  NotifState.zoneHint = false
+                  reloadIsland()
+              }
+
               override fun onResume() {
                   super.onResume()
+                  NotifState.zoneHint = true
+                  reloadIsland()
                   refreshStatus()
                   refreshBg()
                   refreshSignal()
+                  refreshApps()
               }
 
               private fun refreshStatus() {
                   val acc = IslandAccessibilityService.instance != null
                   status.text = "Île : " + (if (acc) "active ✔" else "inactive ✘") +
-                      "\nAutorisation Téléphone : " + (if (hasPhonePermission()) "accordée ✔" else "refusée ✘")
+                      "\nAutorisation Téléphone : " + (if (hasPhonePermission()) "accordée ✔" else "refusée ✘") +
+                      "\nAccès aux notifications : " + (if (NotifListener.instance != null) "actif ✔" else "inactif ✘")
               }
 
               /** Redemande l'autorisation Téléphone, ou ouvre les réglages de l'appli si elle est bloquée */
@@ -687,6 +771,10 @@ jobs:
                   bg1.removeAllViews()
                   bg1.addView(row("Couleur de la forme", "touche pour choisir", prefs.bgColor) {
                       pickBg("Couleur de la forme", { prefs.bgColor }, { prefs.bgColor = it })
+                  })
+                  bg3.removeAllViews()
+                  bg3.addView(row("Couleur de la forme", "touche pour choisir", prefs.ntBg) {
+                      pickBg("Couleur de la forme", { prefs.ntBg }, { prefs.ntBg = it })
                   })
               }
 
@@ -732,6 +820,128 @@ jobs:
                           }, null)
                       })
                   }
+              }
+
+              // ---------- Applis : priorité et blocage ----------
+
+              private fun appLabel(pkg: String): String = try {
+                  packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+              } catch (_: Exception) {
+                  pkg
+              }
+
+              private fun appIcon(pkg: String): android.graphics.drawable.Drawable? = try {
+                  packageManager.getApplicationIcon(pkg)
+              } catch (_: Exception) {
+                  null
+              }
+
+              private fun change(action: () -> Unit) {
+                  action()
+                  refreshApps()
+                  reloadIsland()
+              }
+
+              private fun subtitle(t: String) = TextView(this).apply {
+                  text = t
+                  textSize = 13f
+                  setTextColor(Color.GRAY)
+                  setPadding(0, dp(14), 0, dp(4))
+              }
+
+              private fun appRow(pkg: String, buttons: List<Pair<String, () -> Unit>>): LinearLayout {
+                  val r = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      setPadding(0, dp(4), 0, dp(4))
+                  }
+                  val iv = ImageView(this)
+                  iv.setImageDrawable(appIcon(pkg))
+                  r.addView(iv, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(10) })
+                  val t = TextView(this)
+                  t.text = appLabel(pkg)
+                  t.textSize = 15f
+                  t.maxLines = 1
+                  r.addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                  buttons.forEach { (label, action) ->
+                      r.addView(stepButton(label) { change(action) }, LinearLayout.LayoutParams(dp(42), dp(40)))
+                  }
+                  return r
+              }
+
+              private fun refreshApps() {
+                  appsList.removeAllViews()
+                  val prio = prefs.prioOrder()
+                  val blocked = prefs.blockedPackages
+                  val normal = (prefs.seenPackages - prio.toSet() - blocked).sortedBy { appLabel(it).lowercase() }
+
+                  appsList.addView(subtitle("★ Prioritaires (la première est la plus importante)"))
+                  if (prio.isEmpty()) appsList.addView(subtitle("Aucune. Utilise ★ ou le bouton ci-dessous."))
+                  prio.forEach { pkg ->
+                      appsList.addView(
+                          appRow(
+                              pkg,
+                              listOf(
+                                  "▲" to { prefs.moveUp(pkg) },
+                                  "▼" to { prefs.moveDown(pkg) },
+                                  "✕" to { prefs.unprioritize(pkg) },
+                                  "🚫" to { prefs.block(pkg) }
+                              )
+                          )
+                      )
+                  }
+
+                  appsList.addView(subtitle("Normales (celles qui t'ont notifié, triées par arrivée)"))
+                  if (normal.isEmpty()) appsList.addView(subtitle("Aucune pour l'instant."))
+                  normal.forEach { pkg ->
+                      appsList.addView(
+                          appRow(
+                              pkg,
+                              listOf(
+                                  "★" to { prefs.prioritize(pkg) },
+                                  "🚫" to { prefs.block(pkg) }
+                              )
+                          )
+                      )
+                  }
+
+                  appsList.addView(subtitle("🚫 Bloquées (jamais affichées)"))
+                  if (blocked.isEmpty()) appsList.addView(subtitle("Aucune."))
+                  blocked.sortedBy { appLabel(it).lowercase() }.forEach { pkg ->
+                      appsList.addView(appRow(pkg, listOf("↩" to { prefs.unblock(pkg) })))
+                  }
+              }
+
+              private fun addApp() {
+                  val pm = packageManager
+                  val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                  val apps = pm.queryIntentActivities(intent, 0)
+                      .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+                      .distinctBy { it.second }
+                      .sortedBy { it.first.lowercase() }
+                  AlertDialog.Builder(this)
+                      .setTitle("Choisir une appli prioritaire")
+                      .setItems(apps.map { it.first }.toTypedArray()) { _, i ->
+                          change { prefs.prioritize(apps[i].second) }
+                      }
+                      .show()
+              }
+
+              /** Affiche de fausses notifications pour tester la forme, les icônes et le déploiement */
+              private fun testIcons() {
+                  val pm = packageManager
+                  val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                  val pkgs = pm.queryIntentActivities(intent, 0)
+                      .map { it.activityInfo.packageName }
+                      .distinct()
+                      .filter { it != packageName }
+                      .take(9)
+                  val now = System.currentTimeMillis()
+                  NotifState.update(pkgs.mapIndexed { i, p -> NotifItem(p, 1 + i % 3, now - i * 1000L, null) })
+                  handler.postDelayed({
+                      val l = NotifListener.instance
+                      if (l != null) l.recompute() else NotifState.update(emptyList())
+                  }, 8000)
               }
 
               private fun hexOf(c: Int) = String.format("#%06X", c and 0xFFFFFF)
@@ -921,11 +1131,13 @@ jobs:
                   loIn: Int,
                   hiIn: Int,
                   get: () -> Int,
-                  set: (Int) -> Unit
+                  set: (Int) -> Unit,
+                  rawUnit: String? = null
               ): LinearLayout {
-                  val lo = dp(loIn)
-                  val hi = dp(hiIn)
-                  val unit = " px"
+                  // rawUnit == null : bornes en dp, valeurs en pixels. Sinon : valeurs brutes (ex. " s", " icônes").
+                  val lo = if (rawUnit == null) dp(loIn) else loIn
+                  val hi = if (rawUnit == null) dp(hiIn) else hiIn
+                  val unit = rawUnit ?: " px"
 
                   val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                   val tv = TextView(this).apply {
@@ -964,6 +1176,525 @@ jobs:
                   box.addView(tv)
                   box.addView(line)
                   return box
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/NotifIsland.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.animation.Animator
+          import android.animation.AnimatorListenerAdapter
+          import android.animation.ValueAnimator
+          import android.content.Context
+          import android.content.Intent
+          import android.graphics.Color
+          import android.graphics.PixelFormat
+          import android.graphics.Typeface
+          import android.graphics.drawable.Drawable
+          import android.graphics.drawable.GradientDrawable
+          import android.os.Build
+          import android.os.Handler
+          import android.os.Looper
+          import android.view.Gravity
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.ViewGroup
+          import android.view.WindowManager
+          import android.view.animation.DecelerateInterpolator
+          import android.widget.FrameLayout
+          import android.widget.ImageView
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import androidx.core.graphics.ColorUtils
+          import kotlin.math.abs
+          import kotlin.math.max
+
+          /**
+           * Encoche qui affiche les notifications sous forme d'icônes d'applis.
+           * Deux fenêtres : la forme (qui ne reçoit pas les touches quand elle est repliée)
+           * et une zone de glissement, réglable, qui passe par-dessus le tiroir d'origine.
+           */
+          class NotifIsland(private val ctx: Context, private val windowType: Int) {
+
+              private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+              private val prefs = Prefs(ctx)
+              private val handler = Handler(Looper.getMainLooper())
+              private val bg = IslandDrawable()
+              private val icons = HashMap<String, Drawable>()
+              private val density = ctx.resources.displayMetrics.density
+
+              private var root: FrameLayout? = null
+              private var content: LinearLayout? = null
+              private var lp: WindowManager.LayoutParams? = null
+              private var zone: View? = null
+              private var zoneLp: WindowManager.LayoutParams? = null
+
+              private var expanded = false
+              private var animating = false
+              private var downY = 0f
+              private var swiped = false
+
+              private val autoCollapse = Runnable { if (expanded) setExpanded(false) }
+
+              private fun threshold() = 24f * density
+              private fun screenW() = ctx.resources.displayMetrics.widthPixels
+              private fun curW() = if (expanded) minOf(prefs.ntExpWidth, screenW()) else prefs.ntWidth
+              private fun curH() = if (expanded) prefs.ntExpHeight else prefs.ntHeight
+              private fun curX() = if (expanded) prefs.ntExpX else prefs.ntX
+
+              private fun textColor(): Int =
+                  if (ColorUtils.calculateLuminance(prefs.ntBg) > 0.6) Color.BLACK else Color.WHITE
+
+              private fun newParams(w: Int, h: Int, touchable: Boolean): WindowManager.LayoutParams {
+                  var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                      WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                      WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                  if (!touchable) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                  return WindowManager.LayoutParams(w, h, windowType, flags, PixelFormat.TRANSLUCENT).apply {
+                      gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                      if (Build.VERSION.SDK_INT >= 30) {
+                          layoutInDisplayCutoutMode =
+                              WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                      } else if (Build.VERSION.SDK_INT >= 28) {
+                          layoutInDisplayCutoutMode =
+                              WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                      }
+                  }
+              }
+
+              // ---------- Cycle de vie ----------
+
+              fun start() {
+                  stop()
+
+                  val r = FrameLayout(ctx).apply { background = bg }
+                  val c = LinearLayout(ctx).apply {
+                      orientation = LinearLayout.VERTICAL
+                      gravity = Gravity.CENTER
+                  }
+                  r.addView(
+                      c,
+                      FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+                      )
+                  )
+                  r.setOnTouchListener { _, e -> onPanelTouch(e) }
+                  val p = newParams(prefs.ntWidth, prefs.ntHeight, false)
+                  wm.addView(r, p)
+                  root = r
+                  content = c
+                  lp = p
+
+                  val z = View(ctx)
+                  z.setOnTouchListener { _, e -> onZoneTouch(e) }
+                  val zp = newParams(prefs.zoneWidth, prefs.zoneHeight, true)
+                  wm.addView(z, zp)
+                  zone = z
+                  zoneLp = zp
+
+                  applyLive()
+              }
+
+              fun stop() {
+                  handler.removeCallbacksAndMessages(null)
+                  root?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+                  zone?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+                  root = null
+                  content = null
+                  zone = null
+                  expanded = false
+                  animating = false
+              }
+
+              fun refresh() = applyLive()
+
+              /** Relit tous les réglages (en pixels) et met les fenêtres à jour immédiatement */
+              fun applyLive() {
+                  val v = root ?: return
+                  val p = lp ?: return
+                  val z = zone ?: return
+                  val zp = zoneLp ?: return
+
+                  bg.set(prefs.ntFlare.toFloat(), prefs.ntRadius.toFloat(), prefs.ntBg)
+                  if (!animating) {
+                      p.width = curW()
+                      p.height = curH()
+                      p.x = curX()
+                      p.y = 0
+                  }
+                  updatePadding()
+
+                  v.visibility = when {
+                      !prefs.ntEnabled -> View.INVISIBLE
+                      !expanded && prefs.ntHideEmpty && visibleItems().isEmpty() -> View.INVISIBLE
+                      else -> View.VISIBLE
+                  }
+
+                  zp.width = prefs.zoneWidth
+                  zp.height = prefs.zoneHeight
+                  zp.x = prefs.zoneX
+                  zp.y = prefs.zoneY
+                  zp.flags = if (prefs.ntEnabled) {
+                      zp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                  } else {
+                      zp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                  }
+                  z.setBackgroundColor(
+                      if (prefs.zoneAlways || NotifState.zoneHint) 0x6600E5FF else Color.TRANSPARENT
+                  )
+
+                  try { wm.updateViewLayout(v, p) } catch (_: Exception) {}
+                  try { wm.updateViewLayout(z, zp) } catch (_: Exception) {}
+                  render()
+              }
+
+              private fun updatePadding() {
+                  val w = curW()
+                  val h = curH()
+                  val f = minOf(prefs.ntFlare, w / 4, h / 2).coerceAtLeast(0)
+                  val pad = f + (4 * density).toInt()
+                  root?.setPadding(pad, 0, pad, 0)
+              }
+
+              // ---------- Geste : glisser vers le bas pour déployer ----------
+
+              private fun onZoneTouch(e: MotionEvent): Boolean {
+                  when (e.actionMasked) {
+                      MotionEvent.ACTION_DOWN -> {
+                          downY = e.rawY
+                          swiped = false
+                      }
+                      MotionEvent.ACTION_MOVE -> if (!swiped) {
+                          val dy = e.rawY - downY
+                          if (dy > threshold()) {
+                              swiped = true
+                              setExpanded(true)
+                          } else if (dy < -threshold()) {
+                              swiped = true
+                              setExpanded(false)
+                          }
+                      }
+                      MotionEvent.ACTION_UP -> {
+                          if (!swiped && abs(e.rawY - downY) < threshold() / 2 && expanded) {
+                              setExpanded(false)
+                          }
+                      }
+                  }
+                  return true
+              }
+
+              /** Touche sur le panneau déployé : un appui ou un glissement vers le haut le replie */
+              private fun onPanelTouch(e: MotionEvent): Boolean {
+                  when (e.actionMasked) {
+                      MotionEvent.ACTION_DOWN -> {
+                          downY = e.rawY
+                          swiped = false
+                      }
+                      MotionEvent.ACTION_MOVE -> if (!swiped && downY - e.rawY > threshold()) {
+                          swiped = true
+                          setExpanded(false)
+                      }
+                      MotionEvent.ACTION_UP -> {
+                          if (!swiped && abs(e.rawY - downY) < threshold() / 2) setExpanded(false)
+                      }
+                  }
+                  return true
+              }
+
+              private fun setExpanded(value: Boolean) {
+                  val v = root ?: return
+                  val p = lp ?: return
+                  if (animating || expanded == value) return
+                  expanded = value
+
+                  handler.removeCallbacks(autoCollapse)
+                  if (value && prefs.ntAutoCollapse > 0) {
+                      handler.postDelayed(autoCollapse, prefs.ntAutoCollapse * 1000L)
+                  }
+
+                  // Replié : la forme laisse passer les touches. Déployé : elle les reçoit.
+                  p.flags = if (value) {
+                      p.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                  } else {
+                      p.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                  }
+
+                  val w0 = p.width
+                  val h0 = p.height
+                  val x0 = p.x
+                  val w1 = curW()
+                  val h1 = curH()
+                  val x1 = curX()
+                  v.visibility = View.VISIBLE
+                  updatePadding()
+                  render()
+
+                  animating = true
+                  ValueAnimator.ofFloat(0f, 1f).apply {
+                      duration = 260
+                      interpolator = DecelerateInterpolator()
+                      addUpdateListener {
+                          val f = it.animatedValue as Float
+                          p.width = (w0 + (w1 - w0) * f).toInt().coerceAtLeast(1)
+                          p.height = (h0 + (h1 - h0) * f).toInt().coerceAtLeast(1)
+                          p.x = (x0 + (x1 - x0) * f).toInt()
+                          try { wm.updateViewLayout(v, p) } catch (_: Exception) {}
+                      }
+                      addListener(object : AnimatorListenerAdapter() {
+                          override fun onAnimationEnd(animation: Animator) {
+                              animating = false
+                              applyLive()
+                          }
+                      })
+                      start()
+                  }
+              }
+
+              // ---------- Contenu : priorité, blocage, icônes ----------
+
+              /** Applis notifiées, sans les bloquées, prioritaires d'abord, puis les plus récentes */
+              private fun visibleItems(): List<NotifItem> {
+                  val blocked = prefs.blockedPackages
+                  val prio = prefs.prioOrder()
+                  return NotifState.items
+                      .filter { it.pkg !in blocked }
+                      .sortedWith(
+                          compareBy<NotifItem> {
+                              val i = prio.indexOf(it.pkg)
+                              if (i < 0) Int.MAX_VALUE else i
+                          }.thenByDescending { it.time }
+                      )
+              }
+
+              private fun icon(pkg: String): Drawable {
+                  val base = icons.getOrPut(pkg) {
+                      try {
+                          ctx.packageManager.getApplicationIcon(pkg)
+                      } catch (_: Exception) {
+                          ctx.getDrawable(android.R.drawable.sym_def_app_icon)!!
+                      }
+                  }
+                  return base.constantState?.newDrawable()?.mutate() ?: base
+              }
+
+              private fun iconView(item: NotifItem, size: Int, badge: Boolean): View {
+                  val fl = FrameLayout(ctx)
+                  val iv = ImageView(ctx)
+                  iv.setImageDrawable(icon(item.pkg))
+                  iv.scaleType = ImageView.ScaleType.FIT_CENTER
+                  fl.addView(iv, FrameLayout.LayoutParams(size, size))
+
+                  if (badge && prefs.ntShowBadge && item.count > 1) {
+                      val b = TextView(ctx)
+                      b.text = item.count.toString()
+                      b.textSize = 9f
+                      b.setTextColor(Color.WHITE)
+                      b.setTypeface(Typeface.DEFAULT_BOLD)
+                      b.gravity = Gravity.CENTER
+                      val pad = (3 * density).toInt()
+                      b.setPadding(pad, 0, pad, 0)
+                      b.background = GradientDrawable().apply {
+                          shape = GradientDrawable.RECTANGLE
+                          cornerRadius = 20f * density
+                          setColor(Color.RED)
+                      }
+                      fl.addView(
+                          b,
+                          FrameLayout.LayoutParams(
+                              ViewGroup.LayoutParams.WRAP_CONTENT,
+                              ViewGroup.LayoutParams.WRAP_CONTENT,
+                              Gravity.END or Gravity.BOTTOM
+                          )
+                      )
+                  }
+                  if (expanded) fl.setOnClickListener { openItem(item) }
+                  return fl
+              }
+
+              private fun openItem(item: NotifItem) {
+                  setExpanded(false)
+                  try {
+                      val pi = item.intent
+                      if (pi != null) {
+                          pi.send()
+                      } else {
+                          ctx.packageManager.getLaunchIntentForPackage(item.pkg)?.let {
+                              it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                              ctx.startActivity(it)
+                          }
+                      }
+                  } catch (_: Exception) {
+                  }
+              }
+
+              private fun render() {
+                  val c = content ?: return
+                  c.removeAllViews()
+                  val items = visibleItems()
+                  val gap = prefs.ntIconGap
+                  val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
+
+                  if (!expanded) {
+                      val size = prefs.ntIconSize
+                      val shown = items.take(prefs.ntMaxIcons)
+                      val row = LinearLayout(ctx).apply {
+                          orientation = LinearLayout.HORIZONTAL
+                          gravity = Gravity.CENTER
+                      }
+                      shown.forEachIndexed { i, item ->
+                          row.addView(
+                              iconView(item, size, false),
+                              LinearLayout.LayoutParams(size, size).apply { if (i > 0) marginStart = gap }
+                          )
+                      }
+                      val extra = items.size - shown.size
+                      if (extra > 0) {
+                          row.addView(
+                              TextView(ctx).apply {
+                                  text = "+$extra"
+                                  setTextColor(textColor())
+                                  textSize = 10f
+                                  setTypeface(Typeface.DEFAULT_BOLD)
+                              },
+                              LinearLayout.LayoutParams(wrap, wrap).apply { marginStart = gap }
+                          )
+                      }
+                      c.addView(row)
+                      return
+                  }
+
+                  if (items.isEmpty()) {
+                      c.addView(TextView(ctx).apply {
+                          text = "Aucune notification"
+                          setTextColor(textColor())
+                          textSize = 13f
+                      })
+                      return
+                  }
+
+                  val size = prefs.ntExpIconSize
+                  val w = curW()
+                  val h = curH()
+                  val f = minOf(prefs.ntFlare, w / 4, h / 2).coerceAtLeast(0)
+                  val avail = w - 2 * (f + (4 * density).toInt())
+                  val perRow = max(1, (avail + gap) / (size + gap))
+                  items.chunked(perRow).forEach { chunk ->
+                      val row = LinearLayout(ctx).apply {
+                          orientation = LinearLayout.HORIZONTAL
+                          gravity = Gravity.CENTER
+                      }
+                      chunk.forEachIndexed { i, item ->
+                          row.addView(
+                              iconView(item, size, true),
+                              LinearLayout.LayoutParams(size, size).apply { if (i > 0) marginStart = gap }
+                          )
+                      }
+                      c.addView(row, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = gap })
+                  }
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/NotifListener.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.app.Notification
+          import android.content.ComponentName
+          import android.os.Build
+          import android.service.notification.NotificationListenerService
+          import android.service.notification.StatusBarNotification
+
+          class NotifListener : NotificationListenerService() {
+
+              companion object {
+                  @Volatile
+                  var instance: NotifListener? = null
+              }
+
+              override fun onListenerConnected() {
+                  instance = this
+                  recompute()
+              }
+
+              override fun onListenerDisconnected() {
+                  instance = null
+                  NotifState.update(emptyList())
+                  if (Build.VERSION.SDK_INT >= 24) {
+                      try {
+                          requestRebind(ComponentName(this, NotifListener::class.java))
+                      } catch (_: Exception) {
+                      }
+                  }
+              }
+
+              override fun onNotificationPosted(sbn: StatusBarNotification?) {
+                  if (sbn != null && sbn.packageName != packageName && !sbn.isOngoing) {
+                      Prefs(this).markSeen(sbn.packageName)
+                  }
+                  recompute()
+              }
+
+              override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+                  recompute()
+              }
+
+              /** Regroupe les notifications en cours par appli */
+              fun recompute() {
+                  val active = try {
+                      activeNotifications
+                  } catch (_: Exception) {
+                      null
+                  } ?: return
+
+                  val groups = LinkedHashMap<String, MutableList<StatusBarNotification>>()
+                  active.filter {
+                      it.packageName != packageName &&
+                          !it.isOngoing &&
+                          (it.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0
+                  }.forEach {
+                      groups.getOrPut(it.packageName) { mutableListOf() }.add(it)
+                  }
+
+                  val items = groups.map { (pkg, list) ->
+                      val latest = list.maxByOrNull { it.postTime }!!
+                      NotifItem(pkg, list.size, latest.postTime, latest.notification.contentIntent)
+                  }
+                  NotifState.update(items)
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/NotifState.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.app.PendingIntent
+          import android.os.Handler
+          import android.os.Looper
+
+          /** Une appli qui a au moins une notification en cours */
+          data class NotifItem(
+              val pkg: String,
+              val count: Int,
+              val time: Long,
+              val intent: PendingIntent?
+          )
+
+          /** Pont entre l'écoute des notifications et l'encoche à icônes */
+          object NotifState {
+              @Volatile
+              var items: List<NotifItem> = emptyList()
+
+              /** Vrai pendant que l'appli de réglage est ouverte : la zone de glissement devient visible */
+              @Volatile
+              var zoneHint: Boolean = false
+
+              var onChange: (() -> Unit)? = null
+              private val main = Handler(Looper.getMainLooper())
+
+              fun update(list: List<NotifItem>) {
+                  items = list
+                  main.post { onChange?.invoke() }
               }
           }
           KOTLIN_EOF
@@ -1047,6 +1778,156 @@ jobs:
               var askedPhone: Boolean
                   get() = sp.getBoolean("askedPhone", false)
                   set(v) = putB("askedPhone", v)
+
+              // ----- Encoche notifications (icônes d'applis) -----
+              var ntEnabled: Boolean
+                  get() = sp.getBoolean("ntEnabled", true)
+                  set(v) = putB("ntEnabled", v)
+              var ntWidth: Int
+                  get() = sp.getInt("ntWidthPx", px(130))
+                  set(v) = putI("ntWidthPx", v)
+              var ntHeight: Int
+                  get() = sp.getInt("ntHeightPx", px(26))
+                  set(v) = putI("ntHeightPx", v)
+              var ntFlare: Int
+                  get() = sp.getInt("ntFlarePx", px(12))
+                  set(v) = putI("ntFlarePx", v)
+              var ntRadius: Int
+                  get() = sp.getInt("ntRadiusPx", px(14))
+                  set(v) = putI("ntRadiusPx", v)
+              var ntX: Int
+                  get() = sp.getInt("ntXPx", px(-85))
+                  set(v) = putI("ntXPx", v)
+              var ntBg: Int
+                  get() = sp.getInt("ntBg", Color.BLACK)
+                  set(v) = putI("ntBg", v)
+              var ntHideEmpty: Boolean
+                  get() = sp.getBoolean("ntHideEmpty", false)
+                  set(v) = putB("ntHideEmpty", v)
+
+              /** Nombre d'icônes affichées quand l'encoche est repliée */
+              var ntMaxIcons: Int
+                  get() = sp.getInt("ntMaxIcons", 4)
+                  set(v) = putI("ntMaxIcons", v)
+              var ntIconSize: Int
+                  get() = sp.getInt("ntIconSizePx", px(16))
+                  set(v) = putI("ntIconSizePx", v)
+              var ntIconGap: Int
+                  get() = sp.getInt("ntIconGapPx", px(4))
+                  set(v) = putI("ntIconGapPx", v)
+              var ntShowBadge: Boolean
+                  get() = sp.getBoolean("ntShowBadge", true)
+                  set(v) = putB("ntShowBadge", v)
+
+              // Panneau déployé
+              var ntExpWidth: Int
+                  get() = sp.getInt("ntExpWidthPx", px(300))
+                  set(v) = putI("ntExpWidthPx", v)
+              var ntExpHeight: Int
+                  get() = sp.getInt("ntExpHeightPx", px(140))
+                  set(v) = putI("ntExpHeightPx", v)
+              var ntExpX: Int
+                  get() = sp.getInt("ntExpXPx", 0)
+                  set(v) = putI("ntExpXPx", v)
+              var ntExpIconSize: Int
+                  get() = sp.getInt("ntExpIconSizePx", px(30))
+                  set(v) = putI("ntExpIconSizePx", v)
+              /** Secondes avant le repli automatique (0 = jamais) */
+              var ntAutoCollapse: Int
+                  get() = sp.getInt("ntAutoCollapse", 8)
+                  set(v) = putI("ntAutoCollapse", v)
+
+              // Zone de glissement (là où on touche pour déployer)
+              var zoneWidth: Int
+                  get() = sp.getInt("zoneWidthPx", px(130))
+                  set(v) = putI("zoneWidthPx", v)
+              var zoneHeight: Int
+                  get() = sp.getInt("zoneHeightPx", px(40))
+                  set(v) = putI("zoneHeightPx", v)
+              var zoneX: Int
+                  get() = sp.getInt("zoneXPx", px(-85))
+                  set(v) = putI("zoneXPx", v)
+              var zoneY: Int
+                  get() = sp.getInt("zoneYPx", 0)
+                  set(v) = putI("zoneYPx", v)
+              var zoneAlways: Boolean
+                  get() = sp.getBoolean("zoneAlways", false)
+                  set(v) = putB("zoneAlways", v)
+
+              // ----- Applis : vues, bloquées, ordre de priorité -----
+              var seenPackages: Set<String>
+                  get() = sp.getStringSet("seen", emptySet()) ?: emptySet()
+                  set(v) {
+                      sp.edit().putStringSet("seen", HashSet(v)).apply()
+                  }
+
+              var blockedPackages: Set<String>
+                  get() = sp.getStringSet("blocked", emptySet()) ?: emptySet()
+                  set(v) {
+                      sp.edit().putStringSet("blocked", HashSet(v)).apply()
+                  }
+
+              private var prioRaw: String
+                  get() = sp.getString("prio", "") ?: ""
+                  set(v) {
+                      sp.edit().putString("prio", v).apply()
+                  }
+
+              /** Applis prioritaires, de la plus importante à la moins importante */
+              fun prioOrder(): List<String> =
+                  prioRaw.lines().map { it.trim() }.filter { it.isNotEmpty() }
+
+              private fun savePrio(l: List<String>) {
+                  prioRaw = l.joinToString("\n")
+              }
+
+              fun markSeen(pkg: String) {
+                  val s = HashSet(seenPackages)
+                  if (s.add(pkg)) seenPackages = s
+              }
+
+              fun prioritize(pkg: String) {
+                  unblock(pkg)
+                  markSeen(pkg)
+                  val l = prioOrder()
+                  if (pkg !in l) savePrio(l + pkg)
+              }
+
+              fun unprioritize(pkg: String) {
+                  savePrio(prioOrder() - pkg)
+              }
+
+              fun moveUp(pkg: String) {
+                  val l = prioOrder().toMutableList()
+                  val i = l.indexOf(pkg)
+                  if (i > 0) {
+                      l.removeAt(i)
+                      l.add(i - 1, pkg)
+                      savePrio(l)
+                  }
+              }
+
+              fun moveDown(pkg: String) {
+                  val l = prioOrder().toMutableList()
+                  val i = l.indexOf(pkg)
+                  if (i >= 0 && i < l.size - 1) {
+                      l.removeAt(i)
+                      l.add(i + 1, pkg)
+                      savePrio(l)
+                  }
+              }
+
+              fun block(pkg: String) {
+                  unprioritize(pkg)
+                  markSeen(pkg)
+                  blockedPackages = HashSet(blockedPackages).apply { add(pkg) }
+              }
+
+              fun unblock(pkg: String) {
+                  if (blockedPackages.contains(pkg)) {
+                      blockedPackages = HashSet(blockedPackages).apply { remove(pkg) }
+                  }
+              }
           }
           KOTLIN_EOF
           mkdir -p app/src/main/res/values
