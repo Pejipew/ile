@@ -725,6 +725,9 @@ jobs:
                   bg2 = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                   col.addView(bg2)
                   col.addView(switch("Texte en couleur du réseau", prefs.n2Colored) { prefs.n2Colored = it; reloadIsland() })
+                  col.addView(switch("Afficher comme la barre d'origine (5G annoncé par l'opérateur)", prefs.n2Official) {
+                      prefs.n2Official = it; reloadIsland()
+                  })
                   col.addView(section("Couleurs par type de réseau (touche pour changer)"))
                   netList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                   col.addView(netList)
@@ -1301,7 +1304,9 @@ jobs:
                   }
                   if (dt == TelephonyManager.NETWORK_TYPE_UNKNOWN) return "none"
 
-                  when (overrideType) {
+                  // Par défaut : type de réseau réel. L'étiquette "5G" annoncée par l'opérateur
+                  // (réseau 4G avec 5G en appui) n'est utilisée que si le réglage "comme la barre d'origine" est activé.
+                  when (if (prefs.n2Official) overrideType else 0) {
                       4 -> return "5G+"
                       3 -> return "5G"
                       1, 2 -> if (dt == TelephonyManager.NETWORK_TYPE_LTE ||
@@ -1650,6 +1655,10 @@ jobs:
               var n2Colored: Boolean
                   get() = sp.getBoolean("n2Colored", true)
                   set(v) = putB("n2Colored", v)
+              /** Vrai : affiche l'étiquette de la barre d'origine (5G annoncé par l'opérateur) */
+              var n2Official: Boolean
+                  get() = sp.getBoolean("n2Official", false)
+                  set(v) = putB("n2Official", v)
 
               fun netColor(key: String): Int =
                   sp.getInt("net_$key", Color.parseColor(NET_DEFAULTS[key] ?: "#FFFFFF"))
