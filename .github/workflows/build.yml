@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -1177,6 +1177,9 @@ jobs:
           class NetworkIsland(private val ctx: Context, private val windowType: Int) {
 
               companion object {
+                  /** Constante cachée dans l'API Android : 4G+ (agrégation de porteuses) */
+                  private const val NETWORK_TYPE_LTE_CA = 19
+
                   /** Couleur d'aperçu pendant le choix d'une couleur (0 = aucun aperçu) */
                   @Volatile
                   var previewColor: Int = 0
@@ -1302,13 +1305,13 @@ jobs:
                       4 -> return "5G+"
                       3 -> return "5G"
                       1, 2 -> if (dt == TelephonyManager.NETWORK_TYPE_LTE ||
-                          dt == TelephonyManager.NETWORK_TYPE_LTE_CA
+                          dt == NETWORK_TYPE_LTE_CA
                       ) return "4G+"
                   }
 
                   return when (dt) {
                       TelephonyManager.NETWORK_TYPE_NR -> "5G"
-                      TelephonyManager.NETWORK_TYPE_LTE_CA -> "4G+"
+                      NETWORK_TYPE_LTE_CA -> "4G+"
                       TelephonyManager.NETWORK_TYPE_LTE -> "4G"
                       TelephonyManager.NETWORK_TYPE_HSPAP,
                       TelephonyManager.NETWORK_TYPE_HSDPA,
@@ -1703,7 +1706,14 @@ jobs:
           include(":app")
           KOTLIN_EOF
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: |
+          set -o pipefail
+          gradle assembleDebug --console=plain 2>&1 | tee build.log
+      - name: Show errors
+        if: failure()
+        run: |
+          grep -E '^e: ' build.log | sed 's#file:///[^ ]*/##' | head -20 | while IFS= read -r l; do echo "::error::$l"; done || true
+          grep -A6 'What went wrong' build.log | head -20 | while IFS= read -r l; do echo "::error::$l"; done || true
       - uses: actions/upload-artifact@v4
         with:
           name: CustomIsland-apk
