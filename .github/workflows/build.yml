@@ -247,6 +247,26 @@ jobs:
                       p("hide", v)
                   }
 
+              var shiftX: Int
+                  get() = gi("sx", 0)
+                  set(v) {
+                      p("sx", v)
+                  }
+
+              var shiftY: Int
+                  get() = gi("sy", 0)
+                  set(v) {
+                      p("sy", v)
+                  }
+
+
+              /** 0 = bord gauche, 1 = à gauche du trou, 2 = à droite du trou, 3 = bord droit */
+              var zone: Int
+                  get() = if (j.has("zone")) j.optInt("zone", 1) else (if (left) 1 else 2)
+                  set(v) {
+                      p("zone", v)
+                      p("left", v <= 1)
+                  }
 
               companion object {
                   fun newId(): String = UUID.randomUUID().toString().take(8)
@@ -255,7 +275,7 @@ jobs:
                       val m = Mod(JSONObject())
                       m.j.put("id", newId())
                       m.j.put("kind", kind.name)
-                      m.left = left
+                      m.zone = if (left) 1 else 2
                       m.icon = kind.icon
                       m.showLed = kind.dLed
                       m.showIcon = kind.dIcon
@@ -1602,11 +1622,12 @@ jobs:
                   return w + g * (if (parts > 0) parts - 1 else 0)
               }
 
-              private fun drawMod(canvas: Canvas, m: Mod, x0: Float, cy: Float, s: Float) {
+              private fun drawMod(canvas: Canvas, m: Mod, x0: Float, cy0: Float, s: Float) {
                   val v = vals[m.id] ?: return
                   if (m.kind == Kind.SPACER) return
                   val g = 4f * d * s
-                  var x = x0
+                  val cy = cy0 + m.shiftY * d
+                  var x = x0 + m.shiftX * d
                   var first = true
                   if (m.showLed) {
                       drawLed(canvas, m, v, x, cy, s)
@@ -1681,10 +1702,10 @@ jobs:
                   }
               }
 
-              private fun visibleMods(c: Config, left: Boolean): List<Mod> {
+              private fun visibleMods(c: Config, zone: Int): List<Mod> {
                   val out = ArrayList<Mod>()
                   for (m in c.mods) {
-                      if (!m.enabled || m.left != left) continue
+                      if (!m.enabled || m.zone != zone) continue
                       val v = vals[m.id] ?: continue
                       if (m.hideInactive && !v.active) continue
                       if (!m.showLed && !m.showIcon && !m.showText && m.kind != Kind.SPACER) continue
@@ -1693,17 +1714,29 @@ jobs:
                   return out
               }
 
-              private fun drawSide(canvas: Canvas, list: List<Mod>, left: Boolean, anchor: Float, avail: Float, cy: Float, gap: Float) {
-                  if (list.isEmpty() || avail <= 0f) return
-                  val w1 = list.map { measure(it, 1f) }
-                  val total1 = w1.sum() + gap * (list.size - 1)
+              /** Une moitié de barre : la zone a part du début, la zone b colle à la fin */
+              private fun drawRegion(canvas: Canvas, a: List<Mod>, b: List<Mod>, start: Float, end: Float, cy: Float, gap: Float) {
+                  val avail = end - start
+                  if (avail <= 0f || (a.isEmpty() && b.isEmpty())) return
+                  val wa1 = a.map { measure(it, 1f) }
+                  val wb1 = b.map { measure(it, 1f) }
+                  val ga1 = if (a.size > 1) gap * (a.size - 1) else 0f
+                  val gb1 = if (b.size > 1) gap * (b.size - 1) else 0f
+                  val mid = if (a.isNotEmpty() && b.isNotEmpty()) gap else 0f
+                  val total1 = wa1.sum() + ga1 + wb1.sum() + gb1 + mid
                   val s = if (total1 > avail) (avail / total1).coerceIn(0.45f, 1f) else 1f
-                  val ws = if (s == 1f) w1 else list.map { measure(it, s) }
-                  val total = ws.sum() + gap * s * (list.size - 1)
-                  var x = if (left) anchor - total else anchor
-                  for (i in list.indices) {
-                      drawMod(canvas, list[i], x, cy, s)
-                      x += ws[i] + gap * s
+                  val wa = if (s == 1f) wa1 else a.map { measure(it, s) }
+                  val wb = if (s == 1f) wb1 else b.map { measure(it, s) }
+                  val gbs = if (b.size > 1) gap * s * (b.size - 1) else 0f
+                  var x = start
+                  for (i in a.indices) {
+                      drawMod(canvas, a[i], x, cy, s)
+                      x += wa[i] + gap * s
+                  }
+                  var xb = end - (wb.sum() + gbs)
+                  for (i in b.indices) {
+                      drawMod(canvas, b[i], xb, cy, s)
+                      xb += wb[i] + gap * s
                   }
               }
 
@@ -1754,8 +1787,8 @@ jobs:
                   val gap = c.spacing * d
                   val edge = c.padEdge * d
                   val hp = if (inside) c.holePad * d else gap / 2f
-                  drawSide(canvas, visibleMods(c, true), true, hx - hr - hp, hx - hr - hp - edge, cy, gap)
-                  drawSide(canvas, visibleMods(c, false), false, hx + hr + hp, w - edge - (hx + hr + hp), cy, gap)
+                  drawRegion(canvas, visibleMods(c, 0), visibleMods(c, 1), edge, hx - hr - hp, cy, gap)
+                  drawRegion(canvas, visibleMods(c, 2), visibleMods(c, 3), hx + hr + hp, w - edge, cy, gap)
 
                   // trou de l'appareil photo : rien derrière
                   if (c.holeOn && c.cut) {
@@ -2013,6 +2046,7 @@ jobs:
           cat > app/src/main/java/com/example/island/Ui.kt <<'KOTLIN_EOF'
           package com.example.island
 
+          import android.app.AlertDialog
           import android.content.Context
           import android.content.res.ColorStateList
           import android.graphics.Canvas
@@ -2021,6 +2055,10 @@ jobs:
           import android.graphics.Shader
           import android.graphics.Typeface
           import android.graphics.drawable.GradientDrawable
+          import android.os.Handler
+          import android.os.Looper
+          import android.text.InputType
+          import android.view.MotionEvent
           import android.view.Gravity
           import android.view.View
           import android.view.ViewGroup
@@ -2127,18 +2165,71 @@ jobs:
                   v.setTextColor(if (selected) Pal.TXT else Pal.SUB)
               }
 
+              private val rep = Handler(Looper.getMainLooper())
+
+              /** Bouton qui répète son action tant qu'on le garde appuyé */
+              private fun attachRepeat(v: View, action: () -> Unit) {
+                  var running = false
+                  val r = object : Runnable {
+                      override fun run() {
+                          if (!running) return
+                          action()
+                          rep.postDelayed(this, 70L)
+                      }
+                  }
+                  v.setOnTouchListener { view, e ->
+                      when (e.actionMasked) {
+                          MotionEvent.ACTION_DOWN -> {
+                              view.isPressed = true
+                              action()
+                              running = true
+                              rep.postDelayed(r, 400L)
+                          }
+                          MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                              running = false
+                              rep.removeCallbacks(r)
+                              view.isPressed = false
+                          }
+                      }
+                      true
+                  }
+              }
+
+              private fun stepBtn(t: String): TextView {
+                  val v = tv(t, 22f, Pal.TXT)
+                  v.gravity = Gravity.CENTER
+                  v.minWidth = dp(42)
+                  v.setPadding(dp(8), dp(2), dp(8), dp(4))
+                  v.background = round(Pal.CARD, 10)
+                  return v
+              }
+
+              /** Curseur avec boutons − / + (appui long pour répéter) et valeur modifiable en tapant dessus */
               fun slider(title: String, min: Int, max: Int, get: () -> Int, set: (Int) -> Unit, unit: String = ""): View {
                   val b = box()
                   val head = hrow()
-                  val vt = tv(get().toString() + unit, 13f, Pal.ACCENT)
+                  val vt = tv(get().toString() + unit, 14f, Pal.ACCENT)
+                  vt.setPadding(dp(10), dp(4), dp(10), dp(4))
+                  vt.background = round(Pal.CARD, 10)
                   head.addView(tv(title, 14f, Pal.TXT), LinearLayout.LayoutParams(0, WRAP, 1f))
                   head.addView(vt)
                   b.addView(head)
+
+                  val row = hrow()
                   val sb = SeekBar(ctx)
                   sb.max = max - min
                   sb.progress = get().coerceIn(min, max) - min
                   sb.progressTintList = ColorStateList.valueOf(Pal.ACCENT)
                   sb.thumbTintList = ColorStateList.valueOf(Pal.ACCENT)
+
+                  fun applyValue(v: Int) {
+                      val nv = v.coerceIn(min, max)
+                      set(nv)
+                      vt.text = nv.toString() + unit
+                      sb.progress = nv - min
+                      onChange()
+                  }
+
                   sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                       override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
                           if (fromUser) {
@@ -2151,7 +2242,33 @@ jobs:
                       override fun onStartTrackingTouch(s: SeekBar?) {}
                       override fun onStopTrackingTouch(s: SeekBar?) {}
                   })
-                  b.addView(sb)
+
+                  val minus = stepBtn("−")
+                  val plus = stepBtn("+")
+                  attachRepeat(minus) { applyValue(get() - 1) }
+                  attachRepeat(plus) { applyValue(get() + 1) }
+
+                  vt.setOnClickListener {
+                      val et = EditText(ctx)
+                      et.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
+                      et.setText(get().toString())
+                      et.setTextColor(Pal.TXT)
+                      et.setSelectAllOnFocus(true)
+                      AlertDialog.Builder(ctx, android.R.style.Theme_Material_Dialog_Alert)
+                          .setTitle(title + " (" + min + " à " + max + ")")
+                          .setView(et)
+                          .setPositiveButton("OK") { _, _ ->
+                              val n = et.text.toString().toIntOrNull()
+                              if (n != null) applyValue(n)
+                          }
+                          .setNegativeButton("Annuler", null)
+                          .show()
+                  }
+
+                  row.addView(minus)
+                  row.addView(sb, LinearLayout.LayoutParams(0, WRAP, 1f))
+                  row.addView(plus)
+                  b.addView(row)
                   return b
               }
 
@@ -2636,6 +2753,11 @@ jobs:
                   b.addView(ui.tv(m.kind.icon + "  " + m.kind.title, 18f, Pal.TXT))
                   b.addView(ui.hint("Tout s'applique en direct, regarde la barre 👀"))
 
+                  b.addView(ui.section("Où la placer ?"))
+                  b.addView(ui.chips(null, listOf("⇤ Bord gauche", "◀ Gauche du trou", "Droite du trou ▶", "Bord droit ⇥"), { m.zone.coerceIn(0, 3) }, { m.zone = it }))
+                  b.addView(ui.slider("Décalage horizontal fin", -150, 150, { m.shiftX }, { m.shiftX = it }, " dp"))
+                  b.addView(ui.slider("Décalage vertical fin", -30, 30, { m.shiftY }, { m.shiftY = it }, " dp"))
+
                   b.addView(ui.section("Ce qui s'affiche"))
                   b.addView(ui.toggle("💡 LED colorée", { m.showLed }, { m.showLed = it }))
                   b.addView(ui.toggle("🖼️ Icône", { m.showIcon }, { m.showIcon = it }))
@@ -3008,13 +3130,12 @@ jobs:
 
               fun syncFromRows(rows: List<Row>) {
                   val c = Store.cfg
-                  var left = true
+                  var zone = 0
                   val list = ArrayList<Mod>()
                   for (r in rows) {
-                      if (r.header == 2) { left = false; continue }
-                      if (r.header == 1) continue
+                      if (r.header > 0) { zone = r.header - 1; continue }
                       val m = r.mod ?: continue
-                      m.left = left
+                      m.zone = zone
                       list.add(m)
                   }
                   c.mods.clear()
@@ -3041,10 +3162,10 @@ jobs:
               private fun tabInfos(): View {
                   val c = Store.cfg
                   val rows = ArrayList<Row>()
-                  rows.add(Row(1, null))
-                  for (m in c.mods) if (m.left) rows.add(Row(0, m))
-                  rows.add(Row(2, null))
-                  for (m in c.mods) if (!m.left) rows.add(Row(0, m))
+                  for (z in 0..3) {
+                      rows.add(Row(z + 1, null))
+                      for (m in c.mods) if (m.zone == z) rows.add(Row(0, m))
+                  }
 
                   val adapter = ModAdapter(this, ui, rows)
                   val helper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
@@ -3084,7 +3205,7 @@ jobs:
                   val foot = LinearLayout(this)
                   foot.orientation = LinearLayout.VERTICAL
                   foot.setPadding(ui.dp(14), ui.dp(4), ui.dp(14), ui.dp(10))
-                  foot.addView(ui.hint("Maintiens ≡ pour glisser une info (même de l'autre côté du trou), ou utilise ▲ ▼. ⚙ pour la régler."))
+                  foot.addView(ui.hint("Maintiens ≡ pour glisser une info dans la zone de ton choix (bord gauche, autour du trou, bord droit), ou utilise ▲ ▼. ⚙ pour la régler et la décaler au pixel près."))
                   foot.addView(ui.button("➕ Ajouter une info") { addDialog() })
                   col.addView(foot, LinearLayout.LayoutParams(ui.MATCH, ui.WRAP))
                   return col
@@ -3183,7 +3304,7 @@ jobs:
               }
           }
 
-          /** Ligne de la liste des infos : en-tête gauche/droite (header 1 ou 2) ou une info (header 0) */
+          /** Ligne de la liste des infos : en-tête de zone (header 1 à 4) ou une info (header 0) */
           class Row(val header: Int, val mod: Mod?)
 
           class ModHolder(
@@ -3280,7 +3401,12 @@ jobs:
               override fun onBindViewHolder(h: RecyclerView.ViewHolder, position: Int) {
                   val r = rows[position]
                   if (h is HeadHolder) {
-                      h.tv.text = if (r.header == 1) "◀  À GAUCHE du trou" else "À DROITE du trou  ▶"
+                      h.tv.text = arrayOf(
+                          "⇤  BORD GAUCHE de la barre",
+                          "◀  À GAUCHE du trou",
+                          "À DROITE du trou  ▶",
+                          "BORD DROIT de la barre  ⇥"
+                      )[(r.header - 1).coerceIn(0, 3)]
                       return
                   }
                   val mh = h as ModHolder
@@ -3429,8 +3555,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 2
-                  versionName = "2.0"
+                  versionCode = 3
+                  versionName = "2.1"
               }
 
               compileOptions {
