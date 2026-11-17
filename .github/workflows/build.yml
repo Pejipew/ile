@@ -56,13 +56,6 @@ jobs:
 
               <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
-              <queries>
-                  <intent>
-                      <action android:name="android.intent.action.MAIN" />
-                      <category android:name="android.intent.category.LAUNCHER" />
-                  </intent>
-              </queries>
-
               <application
                   android:allowBackup="true"
                   android:icon="@android:drawable/sym_def_app_icon"
@@ -89,16 +82,6 @@ jobs:
                       <meta-data
                           android:name="android.accessibilityservice"
                           android:resource="@xml/accessibility_config" />
-                  </service>
-
-                  <service
-                      android:name=".NotifListener"
-                      android:exported="true"
-                      android:label="Custom Island LED"
-                      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-                      <intent-filter>
-                          <action android:name="android.service.notification.NotificationListenerService" />
-                      </intent-filter>
                   </service>
               </application>
           </manifest>
@@ -222,7 +205,7 @@ jobs:
           import android.view.accessibility.AccessibilityEvent
 
           /**
-           * Héberge les deux encoches. Un service d'accessibilité peut afficher des fenêtres
+           * Héberge l'encoche. Un service d'accessibilité peut afficher une fenêtre
            * au-dessus de tout (y compris le tiroir de notifications) et reste
            * actif en permanence.
            */
@@ -234,33 +217,24 @@ jobs:
               }
 
               private var controller: IslandController? = null
-              private var netIsland: NetworkIsland? = null
 
               override fun onServiceConnected() {
                   super.onServiceConnected()
                   instance = this
-                  val type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-
-                  val c = IslandController(this, type)
+                  val c = IslandController(this, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
                   controller = c
                   IslandBus.onChange = { c.refreshLed() }
                   c.start()
-
-                  val n = NetworkIsland(this, type)
-                  netIsland = n
-                  n.start()
               }
 
-              /** Applique les réglages en direct, sans recréer les fenêtres */
+              /** Applique les réglages en direct, sans recréer la fenêtre */
               fun reload() {
                   controller?.applyLive()
-                  netIsland?.applyLive()
               }
 
               /** Relit la source de la LED (notifications ou signal mobile) */
               fun refreshSource() {
                   controller?.updateSource()
-                  netIsland?.applyLive()
               }
 
               override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -270,15 +244,12 @@ jobs:
               override fun onConfigurationChanged(newConfig: Configuration) {
                   super.onConfigurationChanged(newConfig)
                   controller?.applyLive()
-                  netIsland?.applyLive()
               }
 
               override fun onUnbind(intent: Intent?): Boolean {
                   IslandBus.onChange = null
                   controller?.stop()
-                  netIsland?.stop()
                   controller = null
-                  netIsland = null
                   instance = null
                   return super.onUnbind(intent)
               }
@@ -365,7 +336,6 @@ jobs:
 
               private val signalPoll = object : Runnable {
                   override fun run() {
-                      if (prefs.ledMode != "signal") return
                       if (!IslandBus.hold) {
                           val level = signalLevel()
                           if (level < 0) IslandBus.update(0, 0)
@@ -386,15 +356,10 @@ jobs:
                   }
               }
 
-              /** Choisit la source de la LED selon le mode réglé dans l'appli */
+              /** (Re)lance la lecture du niveau de signal */
               fun updateSource() {
                   handler.removeCallbacks(signalPoll)
-                  if (prefs.ledMode == "signal") {
-                      signalPoll.run()
-                  } else {
-                      val l = NotifListener.instance
-                      if (l != null) l.recompute() else IslandBus.update(0, 0)
-                  }
+                  signalPoll.run()
               }
 
               fun start() {
@@ -464,8 +429,6 @@ jobs:
                   val v = root ?: return
                   val c = IslandBus.ledColor
                   val on = prefs.ledEnabled && c != 0
-
-                  v.visibility = if (prefs.showOnlyWithLed && !on) View.INVISIBLE else View.VISIBLE
 
                   if (on) {
                       ledView.visibility = View.VISIBLE
@@ -586,8 +549,6 @@ jobs:
           import android.view.ViewGroup
           import android.widget.Button
           import android.widget.LinearLayout
-          import android.widget.RadioButton
-          import android.widget.RadioGroup
           import android.widget.ScrollView
           import android.widget.SeekBar
           import android.widget.Switch
@@ -597,48 +558,31 @@ jobs:
 
               private lateinit var prefs: Prefs
               private lateinit var status: TextView
-              private lateinit var appList: LinearLayout
               private lateinit var signalList: LinearLayout
-              private lateinit var netList: LinearLayout
               private lateinit var bg1: LinearLayout
-              private lateinit var bg2: LinearLayout
               private val handler = Handler(Looper.getMainLooper())
-              private var preview = true
-              private var inForeground = false
 
               private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-              /** Applique les réglages aux encoches, en direct */
+              /** Applique les réglages à l'encoche, en direct */
               private fun reloadIsland() {
                   IslandAccessibilityService.instance?.reload()
               }
 
-              private fun recomputeLed() {
-                  NotifListener.instance?.recompute()
+              /** Relit le niveau de signal et remet la LED à sa vraie couleur */
+              private fun restoreLed() {
+                  IslandAccessibilityService.instance?.refreshSource()
               }
 
-              private fun restoreLed() {
-                  if (prefs.ledMode == "signal") {
-                      IslandAccessibilityService.instance?.refreshSource()
-                      return
-                  }
-                  if (preview && inForeground) {
-                      IslandBus.update(Color.GREEN, 1)
-                      return
-                  }
-                  val l = NotifListener.instance
-                  if (l != null) l.recompute() else IslandBus.update(0, 0)
-              }
+              private fun hasPhonePermission() =
+                  checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   prefs = Prefs(this)
 
-                  // Le mode signal mobile est actif par défaut : on demande l'autorisation dès le début
-                  if (prefs.ledMode == "signal" &&
-                      checkSelfPermission(Manifest.permission.READ_PHONE_STATE) !=
-                      PackageManager.PERMISSION_GRANTED
-                  ) {
+                  // Le niveau de signal a besoin de l'autorisation Téléphone : on la demande dès le début
+                  if (!hasPhonePermission()) {
                       requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 7)
                   }
 
@@ -657,13 +601,10 @@ jobs:
                   col.addView(button("1. Activer l'île (service d'accessibilité)") {
                       startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                   })
-                  col.addView(button("2. Activer l'accès aux notifications (LED)") {
-                      startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                  })
-                  col.addView(button("3. Autoriser « Téléphone » (signal et type de réseau)") { askPhone() })
+                  col.addView(button("2. Autoriser « Téléphone » (niveau de signal)") { askPhone() })
 
-                  // ----- Encoche 1 : forme (réglages en pixels, en direct) -----
-                  col.addView(section("Encoche 1 (LED) : forme, réglage au pixel près en direct"))
+                  // ----- Encoche : forme (réglages en pixels, en direct) -----
+                  col.addView(section("Encoche : forme, réglage au pixel près en direct"))
                   col.addView(seek("Largeur", 20, 200, { prefs.width }, { prefs.width = it }))
                   col.addView(seek("Hauteur", 16, 80, { prefs.height }, { prefs.height = it }))
                   col.addView(seek("Évasement du haut", 0, 30, { prefs.flare }, { prefs.flare = it }))
@@ -671,33 +612,11 @@ jobs:
                   col.addView(seek("Position horizontale (0 = centre)", -200, 200, { prefs.xOffset }, { prefs.xOffset = it }))
                   bg1 = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                   col.addView(bg1)
-                  col.addView(switch("Cacher la forme quand la LED est éteinte", prefs.showOnlyWithLed) {
-                      prefs.showOnlyWithLed = it; reloadIsland()
-                  })
 
                   // ----- LED -----
-                  col.addView(section("LED"))
-                  col.addView(section("Ce que montre la LED"))
-                  col.addView(
-                      radios(
-                          listOf("notif" to "Notifications", "signal" to "Qualité du signal mobile"),
-                          prefs.ledMode
-                      ) {
-                          prefs.ledMode = it
-                          if (it == "signal" &&
-                              checkSelfPermission(Manifest.permission.READ_PHONE_STATE) !=
-                              PackageManager.PERMISSION_GRANTED
-                          ) {
-                              requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 7)
-                          }
-                          IslandAccessibilityService.instance?.refreshSource()
-                      }
-                  )
+                  col.addView(section("LED (niveau du signal mobile)"))
                   col.addView(switch("LED activée", prefs.ledEnabled) {
-                      prefs.ledEnabled = it; recomputeLed(); reloadIsland()
-                  })
-                  col.addView(switch("Aperçu de la LED pendant les réglages", preview) {
-                      preview = it; restoreLed()
+                      prefs.ledEnabled = it; reloadIsland()
                   })
                   col.addView(seek("LED : largeur", 2, 60, { prefs.ledWidth }, { prefs.ledWidth = it }))
                   col.addView(seek("LED : hauteur", 2, 60, { prefs.ledHeight }, { prefs.ledHeight = it }))
@@ -710,34 +629,9 @@ jobs:
                   })
 
                   // ----- Couleurs du signal mobile -----
-                  col.addView(section("Couleurs du signal mobile (touche pour changer, clignote à 0/4)"))
+                  col.addView(section("Couleurs de la LED selon le signal (touche pour changer, clignote à 0/4)"))
                   signalList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                   col.addView(signalList)
-
-                  // ----- Encoche 2 : type de réseau -----
-                  col.addView(section("Encoche 2 : type de réseau (5G, 4G…), réglage au pixel près en direct"))
-                  col.addView(switch("Encoche 2 activée", prefs.n2Enabled) { prefs.n2Enabled = it; reloadIsland() })
-                  col.addView(seek("Largeur", 20, 200, { prefs.n2Width }, { prefs.n2Width = it }))
-                  col.addView(seek("Hauteur", 16, 80, { prefs.n2Height }, { prefs.n2Height = it }))
-                  col.addView(seek("Évasement du haut", 0, 30, { prefs.n2Flare }, { prefs.n2Flare = it }))
-                  col.addView(seek("Arrondi du bas", 0, 60, { prefs.n2BottomRadius }, { prefs.n2BottomRadius = it }))
-                  col.addView(seek("Position horizontale (0 = centre)", -200, 200, { prefs.n2XOffset }, { prefs.n2XOffset = it }))
-                  col.addView(seek("Taille du texte", 6, 24, { prefs.n2TextSize }, { prefs.n2TextSize = it }, false))
-                  bg2 = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                  col.addView(bg2)
-                  col.addView(switch("Texte en couleur du réseau", prefs.n2Colored) { prefs.n2Colored = it; reloadIsland() })
-                  col.addView(switch("Afficher comme la barre d'origine (5G annoncé par l'opérateur)", prefs.n2Official) {
-                      prefs.n2Official = it; reloadIsland()
-                  })
-                  col.addView(section("Couleurs par type de réseau (touche pour changer)"))
-                  netList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                  col.addView(netList)
-
-                  // ----- Couleur par appli -----
-                  col.addView(section("Mode notifications : couleur de la LED selon l'appli (touche une ligne pour changer)"))
-                  appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                  col.addView(appList)
-                  col.addView(button("+ Ajouter une appli") { addApp() })
 
                   setContentView(ScrollView(this).apply { addView(col) })
               }
@@ -749,42 +643,27 @@ jobs:
               ) {
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults)
                   prefs.askedPhone = true
-                  IslandAccessibilityService.instance?.refreshSource()
-                  refreshStatus()
-              }
-
-              override fun onPause() {
-                  super.onPause()
-                  inForeground = false
                   restoreLed()
+                  refreshStatus()
               }
 
               override fun onResume() {
                   super.onResume()
-                  inForeground = true
-                  restoreLed()
                   refreshStatus()
                   refreshBg()
-                  refreshApps()
                   refreshSignal()
-                  refreshNet()
               }
-
-              private fun hasPhonePermission() =
-                  checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
 
               private fun refreshStatus() {
                   val acc = IslandAccessibilityService.instance != null
-                  val notif = NotifListener.instance != null
                   status.text = "Île : " + (if (acc) "active ✔" else "inactive ✘") +
-                      "\nLED notifications : " + (if (notif) "active ✔" else "inactive ✘") +
                       "\nAutorisation Téléphone : " + (if (hasPhonePermission()) "accordée ✔" else "refusée ✘")
               }
 
               /** Redemande l'autorisation Téléphone, ou ouvre les réglages de l'appli si elle est bloquée */
               private fun askPhone() {
                   if (hasPhonePermission()) {
-                      IslandAccessibilityService.instance?.refreshSource()
+                      restoreLed()
                       refreshStatus()
                       return
                   }
@@ -802,16 +681,12 @@ jobs:
                   }
               }
 
-              // ---------- Couleurs du fond (cercle chromatique) ----------
+              // ---------- Couleur du fond (cercle chromatique) ----------
 
               private fun refreshBg() {
                   bg1.removeAllViews()
                   bg1.addView(row("Couleur de la forme", "touche pour choisir", prefs.bgColor) {
                       pickBg("Couleur de la forme", { prefs.bgColor }, { prefs.bgColor = it })
-                  })
-                  bg2.removeAllViews()
-                  bg2.addView(row("Couleur du fond de l'encoche 2", "touche pour choisir", prefs.n2BgColor) {
-                      pickBg("Fond de l'encoche 2", { prefs.n2BgColor }, { prefs.n2BgColor = it })
                   })
               }
 
@@ -840,39 +715,7 @@ jobs:
                   )
               }
 
-              // ---------- Couleurs du réseau et du signal ----------
-
-              private fun refreshNet() {
-                  netList.removeAllViews()
-                  val names = listOf(
-                      "none" to "Aucun service / inconnu",
-                      "2G" to "2G (G, E)",
-                      "3G" to "3G",
-                      "3G+" to "3G+ (HSPA+)",
-                      "4G" to "4G (LTE)",
-                      "4G+" to "4G+ (LTE-A)",
-                      "5G" to "5G",
-                      "5G+" to "5G+"
-                  )
-                  names.forEach { (key, name) ->
-                      val c = prefs.netColor(key)
-                      netList.addView(row(name, "", c) {
-                          pickColor(
-                              name, c,
-                              { nc ->
-                                  prefs.setNetColor(key, nc)
-                                  refreshNet()
-                                  reloadIsland()
-                              },
-                              null,
-                              onPreview = { pc ->
-                                  NetworkIsland.previewColor = pc
-                                  reloadIsland()
-                              }
-                          )
-                      })
-                  }
-              }
+              // ---------- Couleurs du signal ----------
 
               private fun refreshSignal() {
                   signalList.removeAllViews()
@@ -889,71 +732,6 @@ jobs:
                           }, null)
                       })
                   }
-              }
-
-              // ---------- Liste des applis ----------
-
-              private fun appLabel(pkg: String): String = try {
-                  packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
-              } catch (_: Exception) {
-                  pkg
-              }
-
-              private fun refreshApps() {
-                  appList.removeAllViews()
-                  val def = prefs.ledDefaultColor
-                  appList.addView(row("Toutes les autres applis", "sans couleur définie", def) {
-                      pickColor("Autres applis", def, { c ->
-                          prefs.ledDefaultColor = c
-                          refreshApps()
-                          recomputeLed()
-                      }, null)
-                  })
-                  val rules = prefs.rules()
-                  val pkgs = (rules.keys + prefs.seenPackages)
-                      .distinct()
-                      .map { appLabel(it) to it }
-                      .sortedBy { it.first.lowercase() }
-                  pkgs.forEach { (label, pkg) ->
-                      val c = rules[pkg]
-                      appList.addView(
-                          row(label, if (c == null) "pas de couleur définie" else pkg, c ?: prefs.ledDefaultColor) {
-                              openPicker(pkg, label)
-                          }
-                      )
-                  }
-              }
-
-              private fun openPicker(pkg: String, label: String) {
-                  pickColor(
-                      label,
-                      prefs.rules()[pkg] ?: Color.WHITE,
-                      { c ->
-                          prefs.setRule(pkg, c)
-                          refreshApps()
-                          recomputeLed()
-                      },
-                      {
-                          prefs.hidePackage(pkg)
-                          refreshApps()
-                          recomputeLed()
-                      }
-                  )
-              }
-
-              private fun addApp() {
-                  val pm = packageManager
-                  val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                  val apps = pm.queryIntentActivities(intent, 0)
-                      .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
-                      .distinctBy { it.second }
-                      .sortedBy { it.first.lowercase() }
-                  AlertDialog.Builder(this)
-                      .setTitle("Choisir une appli")
-                      .setItems(apps.map { it.first }.toTypedArray()) { _, i ->
-                          openPicker(apps[i].second, apps[i].first)
-                      }
-                      .show()
               }
 
               private fun hexOf(c: Int) = String.format("#%06X", c and 0xFFFFFF)
@@ -1014,6 +792,32 @@ jobs:
                       override fun onStopTrackingTouch(s: SeekBar?) {}
                   })
                   box.addView(bright)
+
+                  // Couleurs prédéfinies : rouge, orange, jaune, vert, bleu, violet, rose
+                  val presets = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      setPadding(0, dp(10), 0, dp(4))
+                  }
+                  listOf("#FF0000", "#FF8C00", "#FFFF00", "#00FF00", "#0066FF", "#8000FF", "#FF4DA6")
+                      .forEach { hexColor ->
+                          val pc = Color.parseColor(hexColor)
+                          val sw = View(this)
+                          sw.background = GradientDrawable().apply {
+                              shape = GradientDrawable.RECTANGLE
+                              cornerRadius = dp(8).toFloat()
+                              setColor(pc)
+                              setStroke(dp(1), Color.GRAY)
+                          }
+                          sw.setOnClickListener {
+                              wheel.setColor(pc)
+                              bright.progress = 100
+                              choose(pc)
+                          }
+                          presets.addView(sw, LinearLayout.LayoutParams(0, dp(36), 1f).apply {
+                              setMargins(dp(2), 0, dp(2), 0)
+                          })
+                      }
+                  box.addView(presets, 2)
 
                   val mute = Switch(this)
                   mute.text = "Pas de LED"
@@ -1096,26 +900,6 @@ jobs:
                   setOnCheckedChangeListener { _, c -> onChange(c) }
               }
 
-              private fun radios(
-                  options: List<Pair<String, String>>,
-                  current: String,
-                  onPick: (String) -> Unit
-              ): RadioGroup {
-                  val g = RadioGroup(this)
-                  options.forEachIndexed { i, (key, name) ->
-                      g.addView(RadioButton(this).apply {
-                          id = 5000 + i
-                          text = name
-                          isChecked = key == current
-                      })
-                  }
-                  g.setOnCheckedChangeListener { _, id ->
-                      onPick(options[id - 5000].first)
-                      reloadIsland()
-                  }
-                  return g
-              }
-
               private fun stepButton(label: String, onClick: () -> Unit) = Button(this).apply {
                   text = label
                   textSize = 20f
@@ -1130,19 +914,18 @@ jobs:
 
               /**
                * Curseur avec un − et un + à chaque bout pour régler au pixel près.
-               * Les bornes sont données en dp, les valeurs sont en pixels (inDp = false : valeur brute, ex. sp).
+               * Les bornes sont données en dp, les valeurs sont en pixels.
                */
               private fun seek(
                   title: String,
                   loIn: Int,
                   hiIn: Int,
                   get: () -> Int,
-                  set: (Int) -> Unit,
-                  inDp: Boolean = true
+                  set: (Int) -> Unit
               ): LinearLayout {
-                  val lo = if (inDp) dp(loIn) else loIn
-                  val hi = if (inDp) dp(hiIn) else hiIn
-                  val unit = if (inDp) " px" else " sp"
+                  val lo = dp(loIn)
+                  val hi = dp(hiIn)
+                  val unit = " px"
 
                   val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                   val tv = TextView(this).apply {
@@ -1185,324 +968,6 @@ jobs:
           }
           KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
-          cat > app/src/main/java/com/example/island/NetworkIsland.kt <<'KOTLIN_EOF'
-          package com.example.island
-
-          import android.Manifest
-          import android.content.Context
-          import android.content.pm.PackageManager
-          import android.graphics.Color
-          import android.graphics.PixelFormat
-          import android.graphics.Typeface
-          import android.os.Build
-          import android.os.Handler
-          import android.os.Looper
-          import android.telephony.TelephonyCallback
-          import android.telephony.TelephonyDisplayInfo
-          import android.telephony.TelephonyManager
-          import android.util.TypedValue
-          import android.view.Gravity
-          import android.view.View
-          import android.view.ViewGroup
-          import android.view.WindowManager
-          import android.widget.FrameLayout
-          import android.widget.TextView
-          import androidx.annotation.RequiresApi
-          import androidx.core.graphics.ColorUtils
-
-          /** Deuxième encoche : affiche le type de réseau mobile (5G, 4G+, H+, 3G, 2G…) */
-          class NetworkIsland(private val ctx: Context, private val windowType: Int) {
-
-              companion object {
-                  /** Constante cachée dans l'API Android : 4G+ (agrégation de porteuses) */
-                  private const val NETWORK_TYPE_LTE_CA = 19
-
-                  /** Couleur d'aperçu pendant le choix d'une couleur (0 = aucun aperçu) */
-                  @Volatile
-                  var previewColor: Int = 0
-              }
-
-              private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-              private val prefs = Prefs(ctx)
-              private val handler = Handler(Looper.getMainLooper())
-              private val bg = IslandDrawable()
-              private val textView = TextView(ctx)
-              private var root: FrameLayout? = null
-              private var lp: WindowManager.LayoutParams? = null
-
-              @Volatile
-              private var overrideType = 0 // 1-2 : 4G+, 3 : 5G (NSA), 4 : 5G+ (NR avancé)
-              private var callback: Any? = null
-
-              private val poll = object : Runnable {
-                  override fun run() {
-                      registerCallback()
-                      updateText()
-                      handler.postDelayed(this, 2000)
-                  }
-              }
-
-              private fun dp(v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
-
-              // ---------- Cycle de vie ----------
-
-              fun start() {
-                  stop()
-                  (textView.parent as? ViewGroup)?.removeView(textView)
-                  textView.gravity = Gravity.CENTER
-                  textView.maxLines = 1
-                  textView.includeFontPadding = false
-                  textView.setTypeface(Typeface.DEFAULT_BOLD)
-
-                  val v = FrameLayout(ctx).apply { background = bg }
-                  v.addView(
-                      textView,
-                      FrameLayout.LayoutParams(
-                          ViewGroup.LayoutParams.WRAP_CONTENT,
-                          ViewGroup.LayoutParams.WRAP_CONTENT,
-                          Gravity.CENTER
-                      )
-                  )
-
-                  val params = WindowManager.LayoutParams(
-                      prefs.n2Width,
-                      prefs.n2Height,
-                      windowType,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                          WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                          WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                          WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                      PixelFormat.TRANSLUCENT
-                  ).apply {
-                      gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                      if (Build.VERSION.SDK_INT >= 30) {
-                          layoutInDisplayCutoutMode =
-                              WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                      } else if (Build.VERSION.SDK_INT >= 28) {
-                          layoutInDisplayCutoutMode =
-                              WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                      }
-                  }
-                  root = v
-                  lp = params
-                  wm.addView(v, params)
-                  applyLive()
-                  handler.post(poll)
-              }
-
-              fun stop() {
-                  handler.removeCallbacksAndMessages(null)
-                  unregisterCallback()
-                  root?.let { try { wm.removeView(it) } catch (_: Exception) {} }
-                  root = null
-              }
-
-              /** Relit les réglages et met la fenêtre à jour immédiatement */
-              fun applyLive() {
-                  val v = root ?: return
-                  val params = lp ?: return
-
-                  bg.set(prefs.n2Flare.toFloat(), prefs.n2BottomRadius.toFloat(), prefs.n2BgColor)
-                  textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, prefs.n2TextSize.toFloat())
-
-                  params.width = prefs.n2Width
-                  params.height = prefs.n2Height
-                  params.x = prefs.n2XOffset
-                  params.y = 0
-                  v.visibility = if (prefs.n2Enabled) View.VISIBLE else View.INVISIBLE
-                  try { wm.updateViewLayout(v, params) } catch (_: Exception) {}
-
-                  updateText()
-              }
-
-              // ---------- Type de réseau ----------
-
-              private fun updateText() {
-                  val hasPerm = ctx.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
-                      PackageManager.PERMISSION_GRANTED
-                  val key = networkKey()
-                  // "?" = autorisation Téléphone manquante, "—" = vraiment aucun service
-                  textView.text = if (!hasPerm) "?" else if (key == "none") "—" else key
-                  val c = when {
-                      previewColor != 0 -> previewColor
-                      prefs.n2Colored -> prefs.netColor(key)
-                      ColorUtils.calculateLuminance(prefs.n2BgColor) > 0.6 -> Color.BLACK
-                      else -> Color.WHITE
-                  }
-                  textView.setTextColor(c)
-              }
-
-              /**
-               * Réseau réellement utilisé : d'abord le réseau de données, puis (si le téléphone ne
-               * le donne pas, par exemple en Wi-Fi ou données mobiles coupées) le réseau voix,
-               * puis le réseau enregistré.
-               */
-              @Suppress("DEPRECATION")
-              private fun realNetworkType(): Int {
-                  return try {
-                      val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-                      var t = tm.dataNetworkType
-                      if (t == TelephonyManager.NETWORK_TYPE_UNKNOWN) t = tm.voiceNetworkType
-                      if (t == TelephonyManager.NETWORK_TYPE_UNKNOWN) t = tm.networkType
-                      t
-                  } catch (_: Exception) {
-                      TelephonyManager.NETWORK_TYPE_UNKNOWN
-                  }
-              }
-
-              private fun networkKey(): String {
-                  val dt = realNetworkType()
-                  if (dt == TelephonyManager.NETWORK_TYPE_UNKNOWN) return "none"
-
-                  // Par défaut : type de réseau réel. L'étiquette "5G" annoncée par l'opérateur
-                  // (réseau 4G avec 5G en appui) n'est utilisée que si le réglage "comme la barre d'origine" est activé.
-                  when (if (prefs.n2Official) overrideType else 0) {
-                      4 -> return "5G+"
-                      3 -> return "5G"
-                      1, 2 -> if (dt == TelephonyManager.NETWORK_TYPE_LTE ||
-                          dt == NETWORK_TYPE_LTE_CA
-                      ) return "4G+"
-                  }
-
-                  return when (dt) {
-                      TelephonyManager.NETWORK_TYPE_NR -> "5G"
-                      NETWORK_TYPE_LTE_CA -> "4G+"
-                      TelephonyManager.NETWORK_TYPE_LTE -> "4G"
-                      TelephonyManager.NETWORK_TYPE_HSPAP,
-                      TelephonyManager.NETWORK_TYPE_HSDPA,
-                      TelephonyManager.NETWORK_TYPE_HSUPA,
-                      TelephonyManager.NETWORK_TYPE_HSPA -> "3G+"
-                      TelephonyManager.NETWORK_TYPE_UMTS,
-                      TelephonyManager.NETWORK_TYPE_EVDO_0,
-                      TelephonyManager.NETWORK_TYPE_EVDO_A,
-                      TelephonyManager.NETWORK_TYPE_EVDO_B,
-                      TelephonyManager.NETWORK_TYPE_EHRPD,
-                      TelephonyManager.NETWORK_TYPE_TD_SCDMA -> "3G"
-                      TelephonyManager.NETWORK_TYPE_GPRS,
-                      TelephonyManager.NETWORK_TYPE_EDGE,
-                      TelephonyManager.NETWORK_TYPE_CDMA,
-                      TelephonyManager.NETWORK_TYPE_1xRTT,
-                      TelephonyManager.NETWORK_TYPE_IDEN -> "2G"
-                      else -> "none"
-                  }
-              }
-
-              // ---------- Détail 5G / 5G+ / 4G+ (Android 12 et plus) ----------
-
-              @RequiresApi(31)
-              private inner class DisplayCb : TelephonyCallback(), TelephonyCallback.DisplayInfoListener {
-                  override fun onDisplayInfoChanged(telephonyDisplayInfo: TelephonyDisplayInfo) {
-                      overrideType = telephonyDisplayInfo.overrideNetworkType
-                      handler.post { updateText() }
-                  }
-              }
-
-              private fun registerCallback() {
-                  if (Build.VERSION.SDK_INT < 31 || callback != null) return
-                  try {
-                      val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-                      val cb = DisplayCb()
-                      tm.registerTelephonyCallback(ctx.mainExecutor, cb)
-                      callback = cb
-                  } catch (_: Exception) {
-                      // permission Téléphone pas encore accordée : on réessaie au prochain cycle
-                  }
-              }
-
-              private fun unregisterCallback() {
-                  if (Build.VERSION.SDK_INT < 31) return
-                  val cb = callback as? TelephonyCallback ?: return
-                  try {
-                      val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-                      tm.unregisterTelephonyCallback(cb)
-                  } catch (_: Exception) {
-                  }
-                  callback = null
-              }
-          }
-          KOTLIN_EOF
-          mkdir -p app/src/main/java/com/example/island
-          cat > app/src/main/java/com/example/island/NotifListener.kt <<'KOTLIN_EOF'
-          package com.example.island
-
-          import android.app.Notification
-          import android.content.ComponentName
-          import android.os.Build
-          import android.service.notification.NotificationListenerService
-          import android.service.notification.StatusBarNotification
-
-          class NotifListener : NotificationListenerService() {
-
-              companion object {
-                  @Volatile
-                  var instance: NotifListener? = null
-              }
-
-              override fun onListenerConnected() {
-                  instance = this
-                  recompute()
-              }
-
-              override fun onListenerDisconnected() {
-                  instance = null
-                  if (Prefs(this).ledMode == "notif") IslandBus.update(0, 0)
-                  if (Build.VERSION.SDK_INT >= 24) {
-                      try {
-                          requestRebind(ComponentName(this, NotifListener::class.java))
-                      } catch (_: Exception) {
-                      }
-                  }
-              }
-
-              override fun onNotificationPosted(sbn: StatusBarNotification?) {
-                  if (sbn != null && sbn.packageName != packageName && !sbn.isOngoing) {
-                      Prefs(this).markSeen(sbn.packageName)
-                  }
-                  recompute()
-              }
-
-              override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-                  recompute()
-              }
-
-              fun recompute() {
-                  val prefs = Prefs(this)
-                  if (prefs.ledMode != "notif" || IslandBus.hold) return
-                  if (!prefs.ledEnabled) {
-                      IslandBus.update(0, 0)
-                      return
-                  }
-                  val active = try {
-                      activeNotifications
-                  } catch (_: Exception) {
-                      null
-                  } ?: return
-
-                  val rules = prefs.rules()
-                  val relevant = active.filter {
-                      it.packageName != packageName &&
-                          !it.isOngoing &&
-                          (it.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0 &&
-                          rules[it.packageName] != 0
-                  }
-
-                  var color = 0
-                  for ((pkg, c) in rules) {
-                      if (c != 0 && relevant.any { it.packageName == pkg }) {
-                          color = c
-                          break
-                      }
-                  }
-                  if (color == 0 && prefs.ledDefaultColor != 0 &&
-                      relevant.any { !rules.containsKey(it.packageName) }
-                  ) {
-                      color = prefs.ledDefaultColor
-                  }
-                  IslandBus.update(color, relevant.size)
-              }
-          }
-          KOTLIN_EOF
-          mkdir -p app/src/main/java/com/example/island
           cat > app/src/main/java/com/example/island/Prefs.kt <<'KOTLIN_EOF'
           package com.example.island
 
@@ -1518,11 +983,8 @@ jobs:
 
               private fun putB(k: String, v: Boolean) = sp.edit().putBoolean(k, v).apply()
               private fun putI(k: String, v: Int) = sp.edit().putInt(k, v).apply()
-              private fun putS(k: String, v: String) = sp.edit().putString(k, v).apply()
 
               companion object {
-                  const val DEFAULT_RULES = ""
-
                   val DEFAULT_SIGNAL = intArrayOf(
                       Color.parseColor("#FF3B30"),
                       Color.parseColor("#FF9500"),
@@ -1530,21 +992,9 @@ jobs:
                       Color.parseColor("#00FF00"),
                       Color.parseColor("#007AFF")
                   )
-
-                  val NET_KEYS = listOf("none", "2G", "3G", "3G+", "4G", "4G+", "5G", "5G+")
-                  private val NET_DEFAULTS = mapOf(
-                      "none" to "#8E8E93",
-                      "2G" to "#FF3B30",
-                      "3G" to "#FF9500",
-                      "3G+" to "#FFD60A",
-                      "4G" to "#34C759",
-                      "4G+" to "#00E5FF",
-                      "5G" to "#007AFF",
-                      "5G+" to "#BF5AF2"
-                  )
               }
 
-              // ----- Encoche 1 (LED) : toutes les tailles en pixels -----
+              // ----- Encoche : toutes les tailles en pixels -----
               var width: Int
                   get() = sp.getInt("widthPx", px(44))
                   set(v) = putI("widthPx", v)
@@ -1565,18 +1015,11 @@ jobs:
               var bgColor: Int
                   get() = sp.getInt("bgColor", Color.BLACK)
                   set(v) = putI("bgColor", v)
-              var showOnlyWithLed: Boolean
-                  get() = sp.getBoolean("showOnlyWithLed", false)
-                  set(v) = putB("showOnlyWithLed", v)
 
               // ----- LED -----
               var ledEnabled: Boolean
                   get() = sp.getBoolean("ledEnabled", true)
                   set(v) = putB("ledEnabled", v)
-              /** "notif" (notifications) ou "signal" (qualité du signal mobile) */
-              var ledMode: String
-                  get() = sp.getString("ledMode", "signal") ?: "signal"
-                  set(v) = putS("ledMode", v)
               var ledWidth: Int
                   get() = sp.getInt("ledWidthPx", px(10))
                   set(v) = putI("ledWidthPx", v)
@@ -1600,125 +1043,10 @@ jobs:
 
               fun setSignalColor(level: Int, c: Int) = putI("sig$level", c)
 
-              /** Couleur pour les applis sans règle (0 = pas de LED) */
-              var ledDefaultColor: Int
-                  get() = sp.getInt("ledDefaultColor", 0)
-                  set(v) = putI("ledDefaultColor", v)
-
-              private var ledRules: String
-                  get() = sp.getString("ledRules", DEFAULT_RULES) ?: DEFAULT_RULES
-                  set(v) = putS("ledRules", v)
-
-              var seenPackages: Set<String>
-                  get() = sp.getStringSet("seen", emptySet()) ?: emptySet()
-                  set(v) {
-                      sp.edit().putStringSet("seen", HashSet(v)).apply()
-                  }
-
-              var hiddenPackages: Set<String>
-                  get() = sp.getStringSet("hidden", emptySet()) ?: emptySet()
-                  set(v) {
-                      sp.edit().putStringSet("hidden", HashSet(v)).apply()
-                  }
-
-              fun markSeen(pkg: String) {
-                  if (hiddenPackages.contains(pkg)) return
-                  val s = HashSet(seenPackages)
-                  if (s.add(pkg)) seenPackages = s
-              }
-
-              /** Retire une appli de la liste : sa règle disparaît et elle n'y revient plus toute seule */
-              fun hidePackage(pkg: String) {
-                  removeRule(pkg)
-                  seenPackages = HashSet(seenPackages).apply { remove(pkg) }
-                  hiddenPackages = HashSet(hiddenPackages).apply { add(pkg) }
-              }
-
-              fun unhidePackage(pkg: String) {
-                  if (hiddenPackages.contains(pkg)) {
-                      hiddenPackages = HashSet(hiddenPackages).apply { remove(pkg) }
-                  }
-              }
-
-              // ----- Règles couleur par appli (0 = pas de LED pour cette appli) -----
-              fun rules(): LinkedHashMap<String, Int> {
-                  val m = LinkedHashMap<String, Int>()
-                  ledRules.lines().forEach { line ->
-                      val parts = line.trim().split("=")
-                      if (parts.size == 2) {
-                          val v = parts[1].trim()
-                          try {
-                              m[parts[0].trim()] = if (v == "off") 0 else Color.parseColor(v)
-                          } catch (_: Exception) {
-                          }
-                      }
-                  }
-                  return m
-              }
-
-              fun setRule(pkg: String, color: Int) {
-                  unhidePackage(pkg)
-                  val m = rules()
-                  m[pkg] = color
-                  saveRules(m)
-              }
-
-              fun removeRule(pkg: String) {
-                  val m = rules()
-                  m.remove(pkg)
-                  saveRules(m)
-              }
-
-              private fun saveRules(m: Map<String, Int>) {
-                  ledRules = m.entries.joinToString("\n") { e ->
-                      if (e.value == 0) "${e.key}=off"
-                      else e.key + "=" + String.format("#%06X", e.value and 0xFFFFFF)
-                  }
-              }
-
               /** Vrai une fois que la demande d'autorisation Téléphone a été affichée au moins une fois */
               var askedPhone: Boolean
                   get() = sp.getBoolean("askedPhone", false)
                   set(v) = putB("askedPhone", v)
-
-              // ----- Encoche 2 : type de réseau -----
-              var n2Enabled: Boolean
-                  get() = sp.getBoolean("n2Enabled", true)
-                  set(v) = putB("n2Enabled", v)
-              var n2Width: Int
-                  get() = sp.getInt("n2WidthPx", px(44))
-                  set(v) = putI("n2WidthPx", v)
-              var n2Height: Int
-                  get() = sp.getInt("n2HeightPx", px(22))
-                  set(v) = putI("n2HeightPx", v)
-              var n2Flare: Int
-                  get() = sp.getInt("n2FlarePx", px(30))
-                  set(v) = putI("n2FlarePx", v)
-              var n2BottomRadius: Int
-                  get() = sp.getInt("n2BottomRadiusPx", px(60))
-                  set(v) = putI("n2BottomRadiusPx", v)
-              var n2XOffset: Int
-                  get() = sp.getInt("n2XOffsetPx", px(-70))
-                  set(v) = putI("n2XOffsetPx", v)
-              var n2BgColor: Int
-                  get() = sp.getInt("n2BgColor", Color.BLACK)
-                  set(v) = putI("n2BgColor", v)
-              /** Taille du texte en sp */
-              var n2TextSize: Int
-                  get() = sp.getInt("n2TextSize", 9)
-                  set(v) = putI("n2TextSize", v)
-              var n2Colored: Boolean
-                  get() = sp.getBoolean("n2Colored", true)
-                  set(v) = putB("n2Colored", v)
-              /** Vrai : affiche l'étiquette de la barre d'origine (5G annoncé par l'opérateur) */
-              var n2Official: Boolean
-                  get() = sp.getBoolean("n2Official", false)
-                  set(v) = putB("n2Official", v)
-
-              fun netColor(key: String): Int =
-                  sp.getInt("net_$key", Color.parseColor(NET_DEFAULTS[key] ?: "#FFFFFF"))
-
-              fun setNetColor(key: String, c: Int) = putI("net_$key", c)
           }
           KOTLIN_EOF
           mkdir -p app/src/main/res/values
