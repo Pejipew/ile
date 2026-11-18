@@ -98,6 +98,14 @@ jobs:
               )
           }
 
+          /** Actions que l'on peut associer à un appui ou un glissement */
+          object Actions {
+              val names = listOf(
+                  "Rien", "Panneau de notifications", "Réglages rapides", "Ouvrir cette appli", "Verrouiller l'écran",
+                  "Capture d'écran", "Applis récentes", "Accueil", "Retour", "Lampe torche", "Appareil photo"
+              )
+          }
+
           /** Valeur calculée d'une info à un instant donné */
           class ModuleValue(
               val text: String = "",
@@ -576,6 +584,156 @@ jobs:
                       p("lng", v)
                   }
 
+              var haloOnNotif: Boolean
+                  get() = gb("hnot", false)
+                  set(v) {
+                      p("hnot", v)
+                  }
+
+              var haloCycle: Boolean
+                  get() = gb("hcy", false)
+                  set(v) {
+                      p("hcy", v)
+                  }
+
+              var haloCycleMs: Int
+                  get() = gi("hcm", 6000)
+                  set(v) {
+                      p("hcm", v)
+                  }
+
+              var haloCycleStep: Boolean
+                  get() = gb("hcs", false)
+                  set(v) {
+                      p("hcs", v)
+                  }
+
+              var haloPulseSpeed: Int
+                  get() = gi("hps", 1500)
+                  set(v) {
+                      p("hps", v)
+                  }
+
+              var haloPulseMin: Int
+                  get() = gi("hpm", 30)
+                  set(v) {
+                      p("hpm", v)
+                  }
+
+              var haloPulseGrow: Int
+                  get() = gi("hpg", 0)
+                  set(v) {
+                      p("hpg", v)
+                  }
+
+              var haloPulseShape: Int
+                  get() = gi("hpsh", 0)
+                  set(v) {
+                      p("hpsh", v)
+                  }
+
+              var holeTap: Int
+                  get() = gi("htap", 0)
+                  set(v) {
+                      p("htap", v)
+                  }
+
+              var holeLong: Int
+                  get() = gi("hlng", 0)
+                  set(v) {
+                      p("hlng", v)
+                  }
+
+              var holeDouble: Int
+                  get() = gi("hdbl", 0)
+                  set(v) {
+                      p("hdbl", v)
+                  }
+
+              var sideOn: Boolean
+                  get() = gb("son", true)
+                  set(v) {
+                      p("son", v)
+                  }
+
+              var sideRight: Boolean
+                  get() = gb("sri", true)
+                  set(v) {
+                      p("sri", v)
+                  }
+
+              var sideY: Int
+                  get() = gi("sy", 200)
+                  set(v) {
+                      p("sy", v)
+                  }
+
+              var sideLen: Int
+                  get() = gi("sl", 90)
+                  set(v) {
+                      p("sl", v)
+                  }
+
+              var sideThick: Int
+                  get() = gi("st", 6)
+                  set(v) {
+                      p("st", v)
+                  }
+
+              var sideTouchW: Int
+                  get() = gi("stw", 24)
+                  set(v) {
+                      p("stw", v)
+                  }
+
+              var sideColor: Int
+                  get() = gi("scol", 0xAAFFFFFF.toInt())
+                  set(v) {
+                      p("scol", v)
+                  }
+
+              var sideVisible: Boolean
+                  get() = gb("svis", true)
+                  set(v) {
+                      p("svis", v)
+                  }
+
+              var sideOnNotif: Boolean
+                  get() = gb("snot", false)
+                  set(v) {
+                      p("snot", v)
+                  }
+
+              var sideTap: Int
+                  get() = gi("stap", 1)
+                  set(v) {
+                      p("stap", v)
+                  }
+
+              var sideLong: Int
+                  get() = gi("slng", 0)
+                  set(v) {
+                      p("slng", v)
+                  }
+
+              var sideDown: Int
+                  get() = gi("sdwn", 1)
+                  set(v) {
+                      p("sdwn", v)
+                  }
+
+              var sideUp: Int
+                  get() = gi("sup", 0)
+                  set(v) {
+                      p("sup", v)
+                  }
+
+              var sideIn: Int
+                  get() = gi("sin", 0)
+                  set(v) {
+                      p("sin", v)
+                  }
+
 
               fun toJson(): JSONObject {
                   val a = JSONArray()
@@ -954,7 +1112,8 @@ jobs:
               @Volatile
               var fast = false
               private var running = false
-              private var torchOn = false
+              var torchOn = false
+                  private set
               private var torchCb: CameraManager.TorchCallback? = null
 
               private var lastRx = 0L
@@ -1812,7 +1971,10 @@ jobs:
           import android.graphics.SweepGradient
           import android.view.View
           import android.view.animation.LinearInterpolator
-          import kotlin.math.sin
+          import androidx.core.graphics.ColorUtils
+          import kotlin.math.abs
+          import kotlin.math.cos
+          import kotlin.math.max
 
           /** Halo lumineux autour de l'objectif */
           class HaloView(ctx: Context, private val engine: StatusEngine) : View(ctx) {
@@ -1827,12 +1989,23 @@ jobs:
                   Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA, Color.RED
               )
 
+              /** rouge, orange, jaune, vert, bleu, violet, rose */
+              private val palette = intArrayOf(
+                  0xFFFF1744.toInt(), 0xFFFF9100.toInt(), 0xFFFFEA00.toInt(), 0xFF00E676.toInt(),
+                  0xFF2979FF.toInt(), 0xFFAA00FF.toInt(), 0xFFFF4081.toInt()
+              )
+
               init {
                   setLayerType(LAYER_TYPE_SOFTWARE, null)
               }
 
-              fun size(c: Config): Int =
-                  ((c.holeD / 2f + c.haloGap + c.haloW + c.haloGlow + 4f) * 2f * d).toInt().coerceAtLeast((8 * d).toInt())
+              private fun hasNotif(): Boolean = NotifState.items.isNotEmpty()
+
+              fun size(c: Config): Int {
+                  val grow = if (c.haloPulse) (c.holeD / 2f + c.haloGap + c.haloW) * c.haloPulseGrow / 100f else 0f
+                  val s = ((c.holeD / 2f + c.haloGap + c.haloW + c.haloGlow + grow + 4f) * 2f * d).toInt()
+                  return s.coerceAtLeast((8 * d).toInt())
+              }
 
               fun refresh() {
                   syncAnim()
@@ -1841,7 +2014,10 @@ jobs:
 
               fun syncAnim() {
                   val c = Store.cfg
-                  val need = c.holeOn && c.haloOn && (c.haloPulse || c.haloStyle >= 1) && isAttachedToWindow && visibility == VISIBLE
+                  val lit = !c.haloOnNotif || hasNotif()
+                  val need = c.holeOn && c.haloOn && lit &&
+                      (c.haloPulse || c.haloCycle || c.haloStyle >= 1) &&
+                      isAttachedToWindow && visibility == VISIBLE
                   if (!need) {
                       anim?.cancel()
                       anim = null
@@ -1874,20 +2050,49 @@ jobs:
                   super.onDetachedFromWindow()
               }
 
+              private fun bump(x: Float, center: Float, w: Float): Float = max(0f, 1f - abs(x - center) / w)
+
+              private fun cycleColor(ms: Int, step: Boolean): Int {
+                  val ph = (System.currentTimeMillis() % ms.toLong()).toFloat() / ms.toFloat()
+                  val n = palette.size
+                  val x = ph * n
+                  val i = x.toInt() % n
+                  if (step) return palette[i]
+                  return ColorUtils.blendARGB(palette[i], palette[(i + 1) % n], x - x.toInt())
+              }
+
               override fun onDraw(canvas: Canvas) {
                   val c = Store.cfg
                   if (!c.holeOn || !c.haloOn) return
+                  if (c.haloOnNotif && !hasNotif()) return
                   val cx = width / 2f
                   val cy = if (centerY >= 0f) centerY else height / 2f
-                  val r = (c.holeD / 2f + c.haloGap + c.haloW / 2f) * d
+
+                  // pulsation : 0 douce, 1 clignotement, 2 battement de coeur
+                  var pv = 1f
+                  if (c.haloPulse) {
+                      val per = c.haloPulseSpeed.coerceAtLeast(200).toLong()
+                      val pt = (System.currentTimeMillis() % per).toFloat() / per.toFloat()
+                      pv = when (c.haloPulseShape) {
+                          1 -> if (pt < 0.5f) 1f else 0f
+                          2 -> max(bump(pt, 0.10f, 0.10f), bump(pt, 0.32f, 0.08f))
+                          else -> 0.5f - 0.5f * cos(2.0 * Math.PI * pt).toFloat()
+                      }
+                  }
+                  val minA = c.haloPulseMin / 100f
+                  val pulse = if (c.haloPulse) minA + (1f - minA) * pv else 1f
+                  val grow = if (c.haloPulse) 1f + c.haloPulseGrow / 100f * pv else 1f
+
+                  val r = (c.holeD / 2f + c.haloGap + c.haloW / 2f) * d * grow
                   val sw = c.haloW * d
 
                   var color = c.haloColor
-                  if (c.haloReactive) {
+                  if (c.haloCycle) {
+                      color = cycleColor(c.haloCycleMs.coerceAtLeast(500), c.haloCycleStep)
+                  } else if (c.haloReactive) {
                       val b = engine.batt()
                       color = if (b.plugged) Pal.GREEN else if (b.pct <= 15) Pal.RED else c.haloColor
                   }
-                  val pulse = if (c.haloPulse) 0.3f + 0.7f * (0.5f + 0.5f * sin(2.0 * Math.PI * t).toFloat()) else 1f
                   val baseAlpha = Color.alpha(color)
 
                   p.shader = null
@@ -1920,6 +2125,94 @@ jobs:
                   canvas.restore()
                   p.shader = null
                   p.pathEffect = null
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/SideView.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.content.Context
+          import android.graphics.Canvas
+          import android.graphics.Paint
+          import android.graphics.RectF
+          import android.os.Handler
+          import android.os.Looper
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.ViewConfiguration
+          import kotlin.math.abs
+          import kotlin.math.min
+
+          /** Poignée sur le côté de l'écran : appui, appui long ou glissement = action au choix */
+          class SideView(ctx: Context, private val doAction: (Int) -> Unit) : View(ctx) {
+              private val d = ctx.resources.displayMetrics.density
+              private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val rect = RectF()
+              private val slop = ViewConfiguration.get(ctx).scaledTouchSlop * 2
+              private val handler = Handler(Looper.getMainLooper())
+              private var downX = 0f
+              private var downY = 0f
+              private var longFired = false
+
+              private val longRun = Runnable {
+                  longFired = true
+                  doAction(Store.cfg.sideLong)
+              }
+
+              fun refresh() {
+                  invalidate()
+              }
+
+              override fun onTouchEvent(e: MotionEvent): Boolean {
+                  val c = Store.cfg
+                  when (e.actionMasked) {
+                      MotionEvent.ACTION_DOWN -> {
+                          downX = e.rawX
+                          downY = e.rawY
+                          longFired = false
+                          if (c.sideLong != 0) {
+                              handler.postDelayed(longRun, ViewConfiguration.getLongPressTimeout().toLong())
+                          }
+                      }
+                      MotionEvent.ACTION_MOVE -> {
+                          if (!longFired && (abs(e.rawX - downX) > slop || abs(e.rawY - downY) > slop)) {
+                              handler.removeCallbacks(longRun)
+                          }
+                      }
+                      MotionEvent.ACTION_UP -> {
+                          handler.removeCallbacks(longRun)
+                          if (!longFired) {
+                              val dx = e.rawX - downX
+                              val dy = e.rawY - downY
+                              val th = 24f * d
+                              if (abs(dy) > th && abs(dy) > abs(dx)) {
+                                  doAction(if (dy > 0f) c.sideDown else c.sideUp)
+                              } else if (abs(dx) > th && abs(dx) > abs(dy)) {
+                                  val inward = if (c.sideRight) dx < 0f else dx > 0f
+                                  if (inward) doAction(c.sideIn)
+                              } else if (abs(dx) <= slop && abs(dy) <= slop) {
+                                  doAction(c.sideTap)
+                              }
+                          }
+                      }
+                      MotionEvent.ACTION_CANCEL -> handler.removeCallbacks(longRun)
+                  }
+                  return true
+              }
+
+              override fun onDraw(canvas: Canvas) {
+                  val c = Store.cfg
+                  if (!c.sideOn || !c.sideVisible) return
+                  if (c.sideOnNotif && NotifState.items.isEmpty()) return
+                  val th = c.sideThick * d
+                  val len = min(height.toFloat(), c.sideLen * d)
+                  val top = (height - len) / 2f
+                  val left = if (c.sideRight) width - th else 0f
+                  rect.set(left, top, left + th, top + len)
+                  p.style = Paint.Style.FILL
+                  p.color = c.sideColor
+                  canvas.drawRoundRect(rect, th / 2f, th / 2f, p)
               }
           }
           KOTLIN_EOF
@@ -2433,10 +2726,13 @@ jobs:
           import android.content.IntentFilter
           import android.content.res.Configuration
           import android.graphics.PixelFormat
+          import android.hardware.camera2.CameraCharacteristics
+          import android.hardware.camera2.CameraManager
           import android.hardware.display.DisplayManager
           import android.os.Build
           import android.os.Handler
           import android.os.Looper
+          import android.provider.MediaStore
           import android.view.Display
           import android.view.GestureDetector
           import android.view.Gravity
@@ -2456,8 +2752,12 @@ jobs:
               private val engine = StatusEngine(svc) { refresh() }
               private val bar = BarView(svc, engine)
               private val halo = HaloView(svc, engine)
+              private val notch = View(svc)
+              private val side = SideView(svc) { act(it) }
               private var barLp: WindowManager.LayoutParams? = null
               private var haloLp: WindowManager.LayoutParams? = null
+              private var notchLp: WindowManager.LayoutParams? = null
+              private var sideLp: WindowManager.LayoutParams? = null
               private var added = false
 
               private val displayListener = object : DisplayManager.DisplayListener {
@@ -2487,6 +2787,37 @@ jobs:
                   }
               })
 
+              /** Bouton invisible posé sur l'encoche : appui court, long ou double */
+              private val notchGesture = GestureDetector(svc, object : GestureDetector.SimpleOnGestureListener() {
+                  override fun onDown(e: MotionEvent): Boolean = true
+
+                  override fun onSingleTapUp(e: MotionEvent): Boolean {
+                      if (Store.cfg.holeDouble == 0) act(Store.cfg.holeTap)
+                      return true
+                  }
+
+                  override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                      if (Store.cfg.holeDouble != 0) act(Store.cfg.holeTap)
+                      return true
+                  }
+
+                  override fun onDoubleTap(e: MotionEvent): Boolean {
+                      act(Store.cfg.holeDouble)
+                      return true
+                  }
+
+                  override fun onLongPress(e: MotionEvent) {
+                      act(Store.cfg.holeLong)
+                  }
+              })
+
+              private fun setTouchable(lp: WindowManager.LayoutParams, touchable: Boolean) {
+                  var fl = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                  fl = fl and WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL.inv()
+                  fl = fl or (if (touchable) WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+                  lp.flags = fl
+              }
+
               private fun makeLp(w: Int, h: Int, touchable: Boolean): WindowManager.LayoutParams {
                   var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                       WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -2512,17 +2843,24 @@ jobs:
                   val c = Store.cfg
                   val bl = makeLp((c.width * d).toInt(), (c.height * d).toInt(), false)
                   val hl = makeLp(10, 10, false)
+                  val nl = makeLp(10, 10, false)
+                  val sl = makeLp(10, 10, false)
                   barLp = bl
                   haloLp = hl
+                  notchLp = nl
+                  sideLp = sl
                   try {
                       wm.addView(bar, bl)
                       wm.addView(halo, hl)
+                      wm.addView(notch, nl)
+                      wm.addView(side, sl)
                       added = true
                   } catch (e: Exception) {
                       added = false
                       return
                   }
                   bar.setOnTouchListener { _, e -> gesture.onTouchEvent(e) }
+                  notch.setOnTouchListener { _, e -> notchGesture.onTouchEvent(e) }
                   dm.registerDisplayListener(displayListener, handler)
                   val f = IntentFilter()
                   f.addAction(Intent.ACTION_SCREEN_ON)
@@ -2538,6 +2876,8 @@ jobs:
                   if (added) {
                       try { wm.removeView(bar) } catch (e: Exception) {}
                       try { wm.removeView(halo) } catch (e: Exception) {}
+                      try { wm.removeView(notch) } catch (e: Exception) {}
+                      try { wm.removeView(side) } catch (e: Exception) {}
                       try { dm.unregisterDisplayListener(displayListener) } catch (e: Exception) {}
                       try { svc.unregisterReceiver(receiver) } catch (e: Exception) {}
                       added = false
@@ -2572,6 +2912,43 @@ jobs:
                   halo.centerY = hyPx - top
                   try { wm.updateViewLayout(halo, hl) } catch (e: Exception) {}
 
+                  // bouton sur l'encoche
+                  val nl = notchLp
+                  if (nl != null) {
+                      val hasNotch = c.holeOn && (c.holeTap != 0 || c.holeLong != 0 || c.holeDouble != 0)
+                      if (hasNotch) {
+                          val ns = (maxOf(c.holeD + 12, 44) * d).toInt()
+                          nl.width = ns
+                          nl.height = ns
+                          nl.x = (c.holeX * d).toInt()
+                          nl.y = (c.holeY * d - ns / 2f).coerceAtLeast(0f).toInt()
+                      } else {
+                          nl.width = 1
+                          nl.height = 1
+                          nl.x = 0
+                          nl.y = 0
+                      }
+                      setTouchable(nl, hasNotch)
+                      try { wm.updateViewLayout(notch, nl) } catch (e: Exception) {}
+                  }
+
+                  // poignée latérale
+                  val sl = sideLp
+                  if (sl != null) {
+                      if (c.sideOn) {
+                          sl.width = maxOf((c.sideTouchW * d).toInt(), (c.sideThick * d).toInt() + 2)
+                          sl.height = (c.sideLen * d).toInt().coerceAtLeast(1)
+                          sl.gravity = Gravity.TOP or (if (c.sideRight) Gravity.RIGHT else Gravity.LEFT)
+                          sl.x = 0
+                          sl.y = (c.sideY * d).toInt()
+                      } else {
+                          sl.width = 1
+                          sl.height = 1
+                      }
+                      setTouchable(sl, c.sideOn)
+                      try { wm.updateViewLayout(side, sl) } catch (e: Exception) {}
+                  }
+
                   updateVisibility()
                   refresh()
               }
@@ -2580,6 +2957,7 @@ jobs:
                   if (!added) return
                   bar.refresh()
                   halo.refresh()
+                  side.refresh()
               }
 
               /** Masque la barre sur l'AOD / l'écran verrouillé / en paysage selon les options */
@@ -2593,8 +2971,11 @@ jobs:
                   val land = svc.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
                   val hidden = (c.hideAod && aod) || (c.hideLock && locked) || (c.hideLand && land)
 
-                  bar.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
-                  halo.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
+                  val vis = if (hidden) View.INVISIBLE else View.VISIBLE
+                  bar.visibility = vis
+                  halo.visibility = vis
+                  notch.visibility = vis
+                  side.visibility = vis
                   bar.syncAnim()
                   halo.syncAnim()
 
@@ -2615,6 +2996,35 @@ jobs:
                       4 -> if (Build.VERSION.SDK_INT >= 28) svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
                       5 -> if (Build.VERSION.SDK_INT >= 28) svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)
                       6 -> svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
+                      7 -> svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                      8 -> svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                      9 -> toggleTorch()
+                      10 -> {
+                          try {
+                              val i = Intent(MediaStore.ACTION_STILL_IMAGE_CAMERA)
+                              i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                              svc.startActivity(i)
+                          } catch (e: Exception) {
+                          }
+                      }
+                  }
+              }
+
+              private fun toggleTorch() {
+                  try {
+                      val cm = svc.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                      var id: String? = null
+                      for (cid in cm.cameraIdList) {
+                          val ch = cm.getCameraCharacteristics(cid)
+                          val flash = ch.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                          val back = ch.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+                          if (flash && back) {
+                              id = cid
+                              break
+                          }
+                      }
+                      if (id != null) cm.setTorchMode(id, !engine.torchOn)
+                  } catch (e: Exception) {
                   }
               }
 
@@ -2876,7 +3286,7 @@ jobs:
               private lateinit var tabRow: LinearLayout
               private var tab = 0
               private val handler = Handler(Looper.getMainLooper())
-              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options")
+              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "↔️ Côté", "⚙️ Options")
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -2926,7 +3336,7 @@ jobs:
                   super.onResume()
                   engine.start()
                   refreshViews()
-                  if (tab == 4) showTab(4)
+                  if (tab == 5) showTab(5)
               }
 
               override fun onPause() {
@@ -2937,7 +3347,7 @@ jobs:
               override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults)
                   Weather.reset()
-                  if (tab == 4) showTab(4)
+                  if (tab == 5) showTab(5)
               }
 
               private fun granted(p: String): Boolean = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
@@ -2972,6 +3382,7 @@ jobs:
                       1 -> scroll(tabStyle())
                       2 -> scroll(tabHole())
                       3 -> tabInfos()
+                      4 -> scroll(tabSide())
                       else -> scroll(tabOptions())
                   }
                   content.addView(v, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
@@ -3089,18 +3500,71 @@ jobs:
                       b.addView(ui.slider("Marge entre le trou et les infos", 0, 30, { c.holePad }, { c.holePad = it }, " dp"))
                       b.addView(ui.toggle("Rien ne s'affiche derrière (découpe)", { c.cut }, { c.cut = it }))
 
+                      b.addView(ui.section("Bouton sur l'encoche"))
+                      b.addView(ui.hint("Touche l'objectif pour déclencher une action."))
+                      b.addView(ui.chips("Appui court", Actions.names, { c.holeTap }, { c.holeTap = it }))
+                      b.addView(ui.chips("Appui long", Actions.names, { c.holeLong }, { c.holeLong = it }))
+                      b.addView(ui.chips("Double appui", Actions.names, { c.holeDouble }, { c.holeDouble = it }))
+
                       b.addView(ui.section("Halo autour de l'objectif"))
                       b.addView(ui.toggle("Activer le halo", { c.haloOn }, { c.haloOn = it }) { rebuild() })
                       if (c.haloOn) {
+                          b.addView(ui.toggle("Allumer seulement quand il y a une notification", { c.haloOnNotif }, { c.haloOnNotif = it }))
+                          b.addView(ui.hint("Demande l'accès aux notifications (onglet Options). Toutes les applis comptent."))
                           b.addView(ui.chips("Style", listOf("◯ Anneau", "┈ Pointillé", "☄️ Arc tournant", "🌈 Arc-en-ciel"), { c.haloStyle }, { c.haloStyle = it }))
                           b.addView(ui.colorRow("Couleur", { c.haloColor }, { c.haloColor = it }))
                           b.addView(ui.slider("Épaisseur", 1, 12, { c.haloW }, { c.haloW = it }, " dp"))
                           b.addView(ui.slider("Écart avec l'objectif", 0, 20, { c.haloGap }, { c.haloGap = it }, " dp"))
                           b.addView(ui.slider("Lueur", 0, 30, { c.haloGlow }, { c.haloGlow = it }, " dp"))
-                          b.addView(ui.toggle("Pulsation", { c.haloPulse }, { c.haloPulse = it }))
                           b.addView(ui.toggle("Réactif : vert en charge, rouge si batterie faible", { c.haloReactive }, { c.haloReactive = it }))
-                          b.addView(ui.slider("Vitesse d'animation (durée d'un tour)", 500, 5000, { c.haloSpeed }, { c.haloSpeed = it }, " ms"))
+                          b.addView(ui.slider("Vitesse de rotation (durée d'un tour)", 500, 5000, { c.haloSpeed }, { c.haloSpeed = it }, " ms"))
+
+                          b.addView(ui.section("Défilement de couleurs"))
+                          b.addView(ui.toggle("🌈 Rouge, orange, jaune, vert, bleu, violet, rose", { c.haloCycle }, { c.haloCycle = it }) { rebuild() })
+                          if (c.haloCycle) {
+                              b.addView(ui.slider("Durée d'un cycle complet", 1000, 20000, { c.haloCycleMs }, { c.haloCycleMs = it }, " ms"))
+                              b.addView(ui.toggle("Par paliers (sans fondu)", { c.haloCycleStep }, { c.haloCycleStep = it }))
+                          }
+
+                          b.addView(ui.section("Pulsation"))
+                          b.addView(ui.toggle("Activer la pulsation", { c.haloPulse }, { c.haloPulse = it }) { rebuild() })
+                          if (c.haloPulse) {
+                              b.addView(ui.chips("Rythme", listOf("Douce", "Clignotement", "Battement de cœur"), { c.haloPulseShape }, { c.haloPulseShape = it }))
+                              b.addView(ui.slider("Durée d'une pulsation", 300, 5000, { c.haloPulseSpeed }, { c.haloPulseSpeed = it }, " ms"))
+                              b.addView(ui.slider("Intensité minimale", 0, 100, { c.haloPulseMin }, { c.haloPulseMin = it }, " %"))
+                              b.addView(ui.slider("Gonflement du cercle", 0, 60, { c.haloPulseGrow }, { c.haloPulseGrow = it }, " %"))
+                          }
                       }
+                  }
+                  return b
+              }
+
+              // ---------------------------------------------------------------- CÔTÉ
+
+              private fun tabSide(): View {
+                  val c = Store.cfg
+                  val b = ui.vbox()
+                  b.addView(ui.section("Poignée sur le côté de l'écran"))
+                  b.addView(ui.hint("Une seconde encoche : touche-la ou glisse dessus pour ouvrir le panneau de notifications d'origine, ou lancer une autre action."))
+                  b.addView(ui.toggle("Activer la poignée", { c.sideOn }, { c.sideOn = it }) { rebuild() })
+                  if (c.sideOn) {
+                      b.addView(ui.chips("Côté", listOf("◀ Gauche", "Droite ▶"), { if (c.sideRight) 1 else 0 }, { c.sideRight = it == 1 }))
+                      b.addView(ui.slider("Position depuis le haut", 0, 900, { c.sideY }, { c.sideY = it }, " dp"))
+                      b.addView(ui.slider("Longueur", 20, 500, { c.sideLen }, { c.sideLen = it }, " dp"))
+                      b.addView(ui.slider("Largeur de la zone tactile", 8, 80, { c.sideTouchW }, { c.sideTouchW = it }, " dp"))
+
+                      b.addView(ui.section("Apparence"))
+                      b.addView(ui.toggle("Afficher la poignée", { c.sideVisible }, { c.sideVisible = it }))
+                      b.addView(ui.colorRow("Couleur", { c.sideColor }, { c.sideColor = it }))
+                      b.addView(ui.slider("Épaisseur", 2, 24, { c.sideThick }, { c.sideThick = it }, " dp"))
+                      b.addView(ui.toggle("Visible seulement quand il y a une notification", { c.sideOnNotif }, { c.sideOnNotif = it }))
+
+                      b.addView(ui.section("Actions"))
+                      b.addView(ui.chips("Appui court", Actions.names, { c.sideTap }, { c.sideTap = it }))
+                      b.addView(ui.chips("Appui long", Actions.names, { c.sideLong }, { c.sideLong = it }))
+                      b.addView(ui.chips("Glisser vers le bas", Actions.names, { c.sideDown }, { c.sideDown = it }))
+                      b.addView(ui.chips("Glisser vers le haut", Actions.names, { c.sideUp }, { c.sideUp = it }))
+                      b.addView(ui.chips("Glisser vers le centre de l'écran", Actions.names, { c.sideIn }, { c.sideIn = it }))
                   }
                   return b
               }
@@ -3260,7 +3724,7 @@ jobs:
                   b.addView(ui.toggle("Masquer en mode paysage", { c.hideLand }, { c.hideLand = it }))
                   b.addView(ui.hint("Si ton téléphone ne signale pas l'AOD correctement, la barre reste simplement affichée."))
 
-                  val acts = listOf("Rien", "Panneau de notifications", "Réglages rapides", "Ouvrir cette appli", "Verrouiller l'écran", "Capture d'écran", "Applis récentes")
+                  val acts = Actions.names
                   b.addView(ui.section("Toucher la barre"))
                   b.addView(ui.chips("Appui court", acts, { c.tapAction }, { c.tapAction = it }))
                   b.addView(ui.chips("Appui long", acts, { c.longAction }, { c.longAction = it }))
@@ -3282,7 +3746,7 @@ jobs:
                                   Store.cfg = cfg
                                   Store.rev++
                                   commit()
-                                  showTab(4)
+                                  showTab(5)
                                   toast("Config importée ✔")
                               } catch (e: Exception) {
                                   toast("Le presse-papiers ne contient pas une config valide")
@@ -3555,8 +4019,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 3
-                  versionName = "2.1"
+                  versionCode = 4
+                  versionName = "2.2"
               }
 
               compileOptions {
