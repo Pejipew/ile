@@ -1513,16 +1513,12 @@ jobs:
                   val net = cm.activeNetwork ?: return ModuleValue("Hors ligne", false, Pal.RED, "📵", true)
                   val caps = cm.getNetworkCapabilities(net) ?: return ModuleValue("Hors ligne", false, Pal.RED, "📵", true)
                   return when {
-                      caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> ModuleValue("Wi‑Fi", true, wifiColor(), "📶")
+                      caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> wifiValue()
                       caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
                           val g = if (simple) "Mobile" else cellGen()
-                          val col = when (g) {
-                              "5G", "4G+", "4G" -> Pal.GREEN
-                              "3G" -> Pal.YELLOW
-                              "2G" -> Pal.ORANGE
-                              else -> Pal.YELLOW
-                          }
-                          ModuleValue(g, true, col, "📶")
+                          // le texte donne le type de réseau, la LED donne la qualité du signal
+                          val lvl = cellLevel()
+                          ModuleValue(g, true, levelColor(lvl), "📶", lvl == 0)
                       }
                       caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> ModuleValue("Ethernet", true, Pal.GREEN, "🔌")
                       caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> ModuleValue("Bluetooth", true, Pal.BLUE, "🔵")
@@ -1530,64 +1526,73 @@ jobs:
                   }
               }
 
-              @Suppress("DEPRECATION")
-              private fun wifiColor(): Int {
+              /** Couleur de LED selon la qualité du signal : 0 aucun (rouge clignotant), 1 très faible (rouge), 2 moyen (orange), 3 bon (jaune), 4 excellent (vert) */
+              private fun levelColor(l: Int): Int = when (l) {
+                  0, 1 -> Pal.RED
+                  2 -> Pal.ORANGE
+                  3 -> Pal.YELLOW
+                  else -> Pal.GREEN
+              }
+
+              /** Niveau du signal mobile de 0 à 4 */
+              private fun cellLevel(): Int {
                   return try {
-                      val wm = app.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-                      val rssi = wm.connectionInfo.rssi
-                      when {
-                          rssi >= -60 -> Pal.GREEN
-                          rssi >= -70 -> Pal.YELLOW
-                          rssi >= -80 -> Pal.ORANGE
-                          else -> Pal.RED
+                      if (Build.VERSION.SDK_INT < 28) {
+                          2
+                      } else {
+                          val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+                          tm.signalStrength?.level ?: 0
                       }
                   } catch (e: Exception) {
-                      Pal.GREEN
+                      2
                   }
               }
 
-              /**
-               * Type de réseau réellement utilisé pour les données.
-               *
-               * IMPORTANT : on ne se base volontairement PAS sur
-               * TelephonyDisplayInfo.overrideNetworkType, car Samsung/Bouygues
-               * peut afficher « 5G » en 5G NSA alors que la connexion de données
-               * réellement rapportée par Android reste LTE.
-               *
-               * Ainsi, si Cellular-Z indique DATA NET = LTE / CELL TYPE = LTE,
-               * l'îlot affiche 4G. Il n'affiche 5G que lorsque Android rapporte
-               * réellement NETWORK_TYPE_NR (20).
-               */
+              @Suppress("DEPRECATION")
+              private fun wifiValue(): ModuleValue {
+                  var lvl = 4
+                  try {
+                      val wm = app.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                      val rssi = wm.connectionInfo.rssi
+                      if (rssi > -127) {
+                          lvl = when {
+                              rssi >= -55 -> 4
+                              rssi >= -67 -> 3
+                              rssi >= -78 -> 2
+                              rssi >= -88 -> 1
+                              else -> 0
+                          }
+                      }
+                  } catch (e: Exception) {
+                  }
+                  return ModuleValue("Wi‑Fi", true, levelColor(lvl), "📶", lvl == 0)
+              }
+
+              /** Vrai seulement si le téléphone est réellement connecté à la 5G (pas juste « disponible ») */
+              @Suppress("DEPRECATION")
+              private fun nrConnected(tm: TelephonyManager): Boolean {
+                  return try {
+                      val ss = tm.serviceState ?: return false
+                      Regex("nrState\\s*=\\s*CONNECTED", RegexOption.IGNORE_CASE).containsMatchIn(ss.toString())
+                  } catch (e: Exception) {
+                      false
+                  }
+              }
+
               private fun cellGen(): String {
                   return try {
                       val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
                       var t = tm.dataNetworkType
                       if (t == 0) t = tm.voiceNetworkType
-
+                      val o = ovrType
                       when {
-                          t == TelephonyManager.NETWORK_TYPE_NR -> "5G"
-                          t == TelephonyManager.NETWORK_TYPE_LTE -> "4G"
-                          t == 19 -> "4G+"
-                          t in listOf(
-                              TelephonyManager.NETWORK_TYPE_UMTS,
-                              TelephonyManager.NETWORK_TYPE_HSDPA,
-                              TelephonyManager.NETWORK_TYPE_HSUPA,
-                              TelephonyManager.NETWORK_TYPE_HSPA,
-                              TelephonyManager.NETWORK_TYPE_HSPAP,
-                              TelephonyManager.NETWORK_TYPE_TD_SCDMA,
-                              TelephonyManager.NETWORK_TYPE_EVDO_0,
-                              TelephonyManager.NETWORK_TYPE_EVDO_A,
-                              TelephonyManager.NETWORK_TYPE_EVDO_B,
-                              TelephonyManager.NETWORK_TYPE_EHRPD,
-                              TelephonyManager.NETWORK_TYPE_HSPAP
-                          ) -> "3G"
-                          t in listOf(
-                              TelephonyManager.NETWORK_TYPE_GPRS,
-                              TelephonyManager.NETWORK_TYPE_EDGE,
-                              TelephonyManager.NETWORK_TYPE_CDMA,
-                              TelephonyManager.NETWORK_TYPE_1xRTT,
-                              TelephonyManager.NETWORK_TYPE_IDEN
-                          ) -> "2G"
+                          t == 20 -> "5G"
+                          // 5G NSA (4G + 5G) : l'ancre reste en LTE, seul l'override le signale
+                          (o == 3 || o == 4 || o == 5) && nrConnected(tm) -> "5G"
+                          t == 19 || (t == 13 && (o == 1 || o == 2)) -> "4G+"
+                          t == 13 -> "4G"
+                          t in listOf(3, 5, 6, 8, 9, 10, 12, 14, 15, 17) -> "3G"
+                          t in listOf(1, 2, 4, 7, 11, 16) -> "2G"
                           else -> "Mobile"
                       }
                   } catch (e: Exception) {
@@ -1600,14 +1605,7 @@ jobs:
                   val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
                   val lvl = tm.signalStrength?.level ?: 0
                   val txt = if (opt == 1) "$lvl/4" else bars(lvl, 4)
-                  val col = when (lvl) {
-                      0 -> Pal.RED
-                      1 -> Pal.RED
-                      2 -> Pal.ORANGE
-                      3 -> Pal.YELLOW
-                      else -> Pal.GREEN
-                  }
-                  return ModuleValue(txt, true, col, "📡", lvl == 0)
+                  return ModuleValue(txt, true, levelColor(lvl), "📡", lvl == 0)
               }
 
               private fun weather(opt: Int): ModuleValue {
@@ -4138,8 +4136,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 9
-                  versionName = "2.2.5"
+                  versionCode = 10
+                  versionName = "2.2.6"
               }
 
               compileOptions {
