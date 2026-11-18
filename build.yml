@@ -1546,6 +1546,17 @@ jobs:
                   }
               }
 
+              /** Vrai seulement si le téléphone est réellement connecté à la 5G (pas juste « disponible ») */
+              @Suppress("DEPRECATION")
+              private fun nrConnected(tm: TelephonyManager): Boolean {
+                  return try {
+                      val ss = tm.serviceState ?: return false
+                      Regex("nrState\\s*=\\s*CONNECTED", RegexOption.IGNORE_CASE).containsMatchIn(ss.toString())
+                  } catch (e: Exception) {
+                      false
+                  }
+              }
+
               private fun cellGen(): String {
                   return try {
                       val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
@@ -1555,7 +1566,7 @@ jobs:
                       when {
                           t == 20 -> "5G"
                           // 5G NSA (4G + 5G) : l'ancre reste en LTE, seul l'override le signale
-                          o == 3 || o == 4 || o == 5 -> "5G"
+                          (o == 3 || o == 4 || o == 5) && nrConnected(tm) -> "5G"
                           t == 19 || (t == 13 && (o == 1 || o == 2)) -> "4G+"
                           t == 13 -> "4G"
                           t in listOf(3, 5, 6, 8, 9, 10, 12, 14, 15, 17) -> "3G"
@@ -4110,8 +4121,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 8
-                  versionName = "2.2.4"
+                  versionCode = 9
+                  versionName = "2.2.5"
               }
 
               compileOptions {
