@@ -781,11 +781,11 @@ jobs:
                   }
                   if (!ok) cfg = Config.default()
                   // une seule fois : la LED du type de connexion suit la qualité du signal
-                  if (!s.getBoolean("mig_net_led", false)) {
+                  if (!s.getBoolean("mig_net_led2", false)) {
                       for (m in cfg.mods) {
                           if (m.kind == Kind.NETWORK) m.autoLed = true
                       }
-                      s.edit().putBoolean("mig_net_led", true).apply()
+                      s.edit().putString("cfg", cfg.toJson().toString()).putBoolean("mig_net_led2", true).apply()
                   }
                   rev++
               }
@@ -3161,6 +3161,7 @@ jobs:
                       }
                       setTouchable(sl, c.sideOn && !Store.sideEdit)
                       try { wm.updateViewLayout(side, sl) } catch (e: Exception) {}
+                      side.post { side.invalidate() }
                   }
 
                   updateVisibility()
@@ -4247,8 +4248,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 12
-                  versionName = "2.2.8"
+                  versionCode = 13
+                  versionName = "2.2.9"
               }
 
               compileOptions {
