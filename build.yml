@@ -759,6 +759,10 @@ jobs:
           object Store {
               @Volatile
               var rev = 0
+
+              /** Vrai pendant le réglage de la poignée latérale : on montre sa zone tactile */
+              @Volatile
+              var sideEdit = false
               var cfg: Config = Config(JSONObject())
               private var sp: SharedPreferences? = null
 
@@ -776,6 +780,13 @@ jobs:
                       }
                   }
                   if (!ok) cfg = Config.default()
+                  // une seule fois : la LED du type de connexion suit la qualité du signal
+                  if (!s.getBoolean("mig_net_led", false)) {
+                      for (m in cfg.mods) {
+                          if (m.kind == Kind.NETWORK) m.autoLed = true
+                      }
+                      s.edit().putBoolean("mig_net_led", true).apply()
+                  }
                   rev++
               }
 
@@ -2304,6 +2315,8 @@ jobs:
 
           import android.content.Context
           import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.DashPathEffect
           import android.graphics.Paint
           import android.graphics.RectF
           import android.os.Handler
@@ -2318,6 +2331,7 @@ jobs:
           class SideView(ctx: Context, private val doAction: (Int) -> Unit) : View(ctx) {
               private val d = ctx.resources.displayMetrics.density
               private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val tp = Paint(Paint.ANTI_ALIAS_FLAG)
               private val rect = RectF()
               private val slop = ViewConfiguration.get(ctx).scaledTouchSlop * 2
               private val handler = Handler(Looper.getMainLooper())
@@ -2373,12 +2387,42 @@ jobs:
 
               override fun onDraw(canvas: Canvas) {
                   val c = Store.cfg
-                  if (!c.sideOn || !c.sideVisible) return
-                  if (c.sideOnNotif && NotifState.items.isEmpty()) return
+                  if (!c.sideOn) return
+                  val edit = Store.sideEdit
+                  if (!edit) {
+                      if (!c.sideVisible) return
+                      if (c.sideOnNotif && NotifState.items.isEmpty()) return
+                  }
                   val th = c.sideThick * d
                   val len = min(height.toFloat(), c.sideLen * d)
                   val top = (height - len) / 2f
                   val left = if (c.sideRight) width - th else 0f
+
+                  if (edit) {
+                      // pendant le réglage : on montre la zone qui réagit au toucher
+                      val w = width.toFloat()
+                      val h = height.toFloat()
+                      rect.set(0f, 0f, w, h)
+                      p.style = Paint.Style.FILL
+                      p.pathEffect = null
+                      p.color = 0x447C4DFF
+                      canvas.drawRoundRect(rect, 8f * d, 8f * d, p)
+                      p.style = Paint.Style.STROKE
+                      p.strokeWidth = 2f * d
+                      p.color = 0xFFB388FF.toInt()
+                      p.pathEffect = DashPathEffect(floatArrayOf(8f * d, 6f * d), 0f)
+                      rect.set(d, d, w - d, h - d)
+                      canvas.drawRoundRect(rect, 8f * d, 8f * d, p)
+                      p.pathEffect = null
+                      tp.color = Color.WHITE
+                      tp.textSize = min(11f * d, w * 0.5f)
+                      tp.textAlign = Paint.Align.CENTER
+                      canvas.save()
+                      canvas.rotate(-90f, w / 2f, h / 2f)
+                      canvas.drawText("ZONE TACTILE", w / 2f, h / 2f - (tp.ascent() + tp.descent()) / 2f, tp)
+                      canvas.restore()
+                  }
+
                   rect.set(left, top, left + th, top + len)
                   p.style = Paint.Style.FILL
                   p.color = c.sideColor
@@ -3115,7 +3159,7 @@ jobs:
                           sl.width = 1
                           sl.height = 1
                       }
-                      setTouchable(sl, c.sideOn)
+                      setTouchable(sl, c.sideOn && !Store.sideEdit)
                       try { wm.updateViewLayout(side, sl) } catch (e: Exception) {}
                   }
 
@@ -3383,7 +3427,10 @@ jobs:
                   b.addView(ui.section("LED"))
                   b.addView(ui.chips("Style", listOf("● Point", "○ Anneau", "▬ Barre", "✺ Lumineuse"), { m.ledStyle }, { m.ledStyle = it }))
                   b.addView(ui.slider("Taille", 3, 24, { m.ledSize }, { m.ledSize = it }, " dp"))
-                  b.addView(ui.toggle("Couleur automatique selon l'état", { m.autoLed }, { m.autoLed = it }))
+                  b.addView(ui.toggle(
+                      if (m.kind == Kind.NETWORK || m.kind == Kind.SIGNAL) "Couleur selon la qualité du signal (désactive pour une couleur fixe)" else "Couleur automatique selon l'état",
+                      { m.autoLed }, { m.autoLed = it }
+                  ))
                   b.addView(ui.colorRow("Couleur fixe (si auto désactivé)", { m.ledColor }, { m.ledColor = it }, false))
                   b.addView(ui.toggle("Clignotante", { m.ledBlink }, { m.ledBlink = it }))
 
@@ -3504,12 +3551,14 @@ jobs:
 
               override fun onResume() {
                   super.onResume()
+                  setSideEdit(tab == 4)
                   engine.start()
                   refreshViews()
                   if (tab == 5) showTab(5)
               }
 
               override fun onPause() {
+                  setSideEdit(false)
                   engine.stop()
                   super.onPause()
               }
@@ -3543,8 +3592,16 @@ jobs:
                   return s
               }
 
+              /** Montre (ou cache) la zone tactile de la poignée sur l'écran pendant qu'on la règle */
+              private fun setSideEdit(v: Boolean) {
+                  if (Store.sideEdit == v) return
+                  Store.sideEdit = v
+                  IslandAccessibilityService.instance?.reload()
+              }
+
               private fun showTab(i: Int) {
                   tab = i
+                  setSideEdit(i == 4)
                   for (k in 0 until tabRow.childCount) ui.styleChip(tabRow.getChildAt(k) as TextView, k == i)
                   content.removeAllViews()
                   val v = when (i) {
@@ -3716,6 +3773,7 @@ jobs:
                   val b = ui.vbox()
                   b.addView(ui.section("Poignée sur le côté de l'écran"))
                   b.addView(ui.hint("Une seconde encoche : touche-la ou glisse dessus pour ouvrir le panneau de notifications d'origine, ou lancer une autre action."))
+                  b.addView(ui.hint("Tant que cet onglet est ouvert, la zone tactile apparaît en violet pointillé sur le bord de ton écran (elle ne réagit pas au toucher pour ne pas gêner les réglages)."))
                   b.addView(ui.toggle("Activer la poignée", { c.sideOn }, { c.sideOn = it }) { rebuild() })
                   if (c.sideOn) {
                       b.addView(ui.chips("Côté", listOf("◀ Gauche", "Droite ▶"), { if (c.sideRight) 1 else 0 }, { c.sideRight = it == 1 }))
@@ -4189,8 +4247,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 11
-                  versionName = "2.2.7"
+                  versionCode = 12
+                  versionName = "2.2.8"
               }
 
               compileOptions {
