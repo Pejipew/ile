@@ -3001,7 +3001,7 @@ jobs:
                       9 -> toggleTorch()
                       10 -> {
                           try {
-                              val i = Intent(MediaStore.ACTION_STILL_IMAGE_CAMERA)
+                              val i = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
                               i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                               svc.startActivity(i)
                           } catch (e: Exception) {
@@ -4019,8 +4019,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 4
-                  versionName = "2.2"
+                  versionCode = 5
+                  versionName = "2.2.1"
               }
 
               compileOptions {
