@@ -1086,6 +1086,9 @@ jobs:
           import android.os.StatFs
           import android.os.SystemClock
           import android.provider.Settings
+          import android.telephony.PhoneStateListener
+          import android.telephony.TelephonyCallback
+          import android.telephony.TelephonyDisplayInfo
           import android.telephony.TelephonyManager
           import java.text.SimpleDateFormat
           import java.util.Calendar
@@ -1116,6 +1119,11 @@ jobs:
                   private set
               private var torchCb: CameraManager.TorchCallback? = null
 
+              @Volatile
+              private var ovrType = 0
+              private var dispCb: Any? = null
+              private var dispListener: Any? = null
+
               private var lastRx = 0L
               private var lastTx = 0L
               private var lastT = 0L
@@ -1139,6 +1147,7 @@ jobs:
                   if (running) return
                   running = true
                   registerTorch()
+                  registerDisplay()
                   handler.post(tick)
               }
 
@@ -1146,7 +1155,69 @@ jobs:
                   running = false
                   handler.removeCallbacks(tick)
                   unregisterTorch()
+                  unregisterDisplay()
                   lastT = 0L
+              }
+
+              private fun hasPhonePerm(): Boolean =
+                  app.checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) ==
+                      android.content.pm.PackageManager.PERMISSION_GRANTED
+
+              /** Écoute les changements d'affichage réseau (4G+, 5G NSA...) comme la barre système */
+              @Suppress("DEPRECATION")
+              private fun registerDisplay() {
+                  if (Build.VERSION.SDK_INT < 30 || dispCb != null || dispListener != null) return
+                  if (!hasPhonePerm()) return
+                  try {
+                      val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+                      if (Build.VERSION.SDK_INT >= 31) {
+                          val cb = DisplayCb { t ->
+                              ovrType = t
+                              onUpdate()
+                          }
+                          tm.registerTelephonyCallback(app.mainExecutor, cb)
+                          dispCb = cb
+                      } else {
+                          val l = DisplayLegacy { t ->
+                              ovrType = t
+                              onUpdate()
+                          }
+                          tm.listen(l, PhoneStateListener.LISTEN_DISPLAY_INFO_CHANGED)
+                          dispListener = l
+                      }
+                  } catch (e: Exception) {
+                  }
+              }
+
+              @Suppress("DEPRECATION")
+              private fun unregisterDisplay() {
+                  try {
+                      val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+                      if (Build.VERSION.SDK_INT >= 31) {
+                          (dispCb as? TelephonyCallback)?.let { tm.unregisterTelephonyCallback(it) }
+                      } else if (Build.VERSION.SDK_INT >= 30) {
+                          (dispListener as? PhoneStateListener)?.let { tm.listen(it, PhoneStateListener.LISTEN_NONE) }
+                      }
+                  } catch (e: Exception) {
+                  }
+                  dispCb = null
+                  dispListener = null
+                  ovrType = 0
+              }
+
+              @androidx.annotation.RequiresApi(31)
+              private class DisplayCb(val f: (Int) -> Unit) : TelephonyCallback(), TelephonyCallback.DisplayInfoListener {
+                  override fun onDisplayInfoChanged(telephonyDisplayInfo: TelephonyDisplayInfo) {
+                      f(telephonyDisplayInfo.overrideNetworkType)
+                  }
+              }
+
+              @Suppress("DEPRECATION")
+              @androidx.annotation.RequiresApi(30)
+              private class DisplayLegacy(val f: (Int) -> Unit) : PhoneStateListener() {
+                  override fun onDisplayInfoChanged(telephonyDisplayInfo: TelephonyDisplayInfo) {
+                      f(telephonyDisplayInfo.overrideNetworkType)
+                  }
               }
 
               private fun registerTorch() {
@@ -1463,12 +1534,17 @@ jobs:
               private fun cellGen(): String {
                   return try {
                       val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-                      when (tm.dataNetworkType) {
-                          20 -> "5G"
-                          13 -> "4G"
-                          19 -> "4G+"
-                          15, 10, 8, 9, 3 -> "3G"
-                          1, 2, 4, 7, 11 -> "2G"
+                      var t = tm.dataNetworkType
+                      if (t == 0) t = tm.voiceNetworkType
+                      val o = ovrType
+                      when {
+                          t == 20 -> "5G"
+                          // 5G NSA (4G + 5G) : l'ancre reste en LTE, seul l'override le signale
+                          o == 3 || o == 4 || o == 5 -> "5G"
+                          t == 19 || (t == 13 && (o == 1 || o == 2)) -> "4G+"
+                          t == 13 -> "4G"
+                          t in listOf(3, 5, 6, 8, 9, 10, 12, 14, 15, 17) -> "3G"
+                          t in listOf(1, 2, 4, 7, 11, 16) -> "2G"
                           else -> "Mobile"
                       }
                   } catch (e: Exception) {
@@ -4019,8 +4095,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 5
-                  versionName = "2.2.1"
+                  versionCode = 6
+                  versionName = "2.2.2"
               }
 
               compileOptions {
