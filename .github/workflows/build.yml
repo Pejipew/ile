@@ -1,4 +1,5 @@
 name: Build APK
+run-name: Build APK 2.2.9 (${{ github.sha }})
 
 on:
   push:
@@ -65,7 +66,7 @@ jobs:
               CHARGE_TIME("Temps avant charge complète", "⏱️", dHide = true),
               BATT_TEMP("Température batterie", "🌡️", listOf("°C", "°F")),
               NETWORK("Type de connexion", "📶", listOf("Wi‑Fi / 5G / 4G…", "Simple (Wi‑Fi / Mobile)")),
-              SIGNAL("Signal mobile", "📡", listOf("Barres", "Niveau (3/4)"), dLed = true, dText = false),
+              SIGNAL("Signal mobile", "📡", listOf("Barres", "Niveau (3/4)", "Valeur (dBm)"), dLed = true, dText = false),
               SPEED("Débit réseau", "🚀", listOf("↓ Descendant", "↑ Montant", "↓↑ Les deux")),
               NOTIF_COUNT("Notifications (nombre)", "🔔", dHide = true),
               NOTIF_ICONS("Notifications (icônes d'applis)", "🔔", listOf("2 max", "3 max", "4 max", "5 max", "6 max"), dText = false, dHide = true),
@@ -759,6 +760,10 @@ jobs:
           object Store {
               @Volatile
               var rev = 0
+
+              /** Vrai pendant le réglage de la poignée latérale : on montre sa zone tactile */
+              @Volatile
+              var sideEdit = false
               var cfg: Config = Config(JSONObject())
               private var sp: SharedPreferences? = null
 
@@ -776,6 +781,13 @@ jobs:
                       }
                   }
                   if (!ok) cfg = Config.default()
+                  // une seule fois : la LED du type de connexion suit la qualité du signal
+                  if (!s.getBoolean("mig_net_led2", false)) {
+                      for (m in cfg.mods) {
+                          if (m.kind == Kind.NETWORK) m.autoLed = true
+                      }
+                      s.edit().putString("cfg", cfg.toJson().toString()).putBoolean("mig_net_led2", true).apply()
+                  }
                   rev++
               }
 
@@ -1086,6 +1098,8 @@ jobs:
           import android.os.StatFs
           import android.os.SystemClock
           import android.provider.Settings
+          import android.telephony.CellSignalStrengthLte
+          import android.telephony.CellSignalStrengthNr
           import android.telephony.PhoneStateListener
           import android.telephony.TelephonyCallback
           import android.telephony.TelephonyDisplayInfo
@@ -1422,7 +1436,7 @@ jobs:
                       }
                       Kind.WIFI_STATE -> {
                           val on = Settings.Global.getInt(app.contentResolver, "wifi_on", 0) != 0
-                          ModuleValue(if (on) "On" else "Off", on, if (on) Pal.CYAN else Pal.GRAY)
+                          ModuleValue(if (on) "On" else "Off", on, if (on) Pal.GREEN else Pal.GRAY)
                       }
                       Kind.AIRPLANE -> {
                           val on = Settings.Global.getInt(app.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
@@ -1513,21 +1527,116 @@ jobs:
                   val net = cm.activeNetwork ?: return ModuleValue("Hors ligne", false, Pal.RED, "📵", true)
                   val caps = cm.getNetworkCapabilities(net) ?: return ModuleValue("Hors ligne", false, Pal.RED, "📵", true)
                   return when {
-                      caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> ModuleValue("Wi‑Fi", true, Pal.CYAN, "📶")
+                      caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> wifiValue()
                       caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
                           val g = if (simple) "Mobile" else cellGen()
-                          val col = when (g) {
-                              "5G" -> Pal.GREEN
-                              "4G", "4G+" -> Pal.LIME
-                              "3G" -> Pal.ORANGE
-                              "2G" -> Pal.RED
-                              else -> Pal.CYAN
-                          }
-                          ModuleValue(g, true, col, "📶")
+                          // le texte donne le type de réseau, la LED donne la qualité du signal
+                          val lvl = cellLevel()
+                          ModuleValue(g, true, levelColor(lvl), "📶", lvl == 0)
                       }
                       caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> ModuleValue("Ethernet", true, Pal.GREEN, "🔌")
                       caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> ModuleValue("Bluetooth", true, Pal.BLUE, "🔵")
                       else -> ModuleValue("Réseau", true, Pal.WHITE, "📶")
+                  }
+              }
+
+              /** Couleur de LED selon la qualité du signal : 0 aucun (rouge clignotant), 1 très faible (rouge), 2 moyen (orange), 3 bon (jaune), 4 excellent (vert) */
+              private fun levelColor(l: Int): Int = when (l) {
+                  0, 1 -> Pal.RED
+                  2 -> Pal.ORANGE
+                  3 -> Pal.YELLOW
+                  else -> Pal.GREEN
+              }
+
+              /** Puissance réelle du signal en dBm (RSRP en 4G, SS-RSRP en 5G autonome), ou null si inconnue */
+              private fun cellDbm(tm: TelephonyManager): Int? {
+                  if (Build.VERSION.SDK_INT < 29) return null
+                  val list = tm.signalStrength?.cellSignalStrengths ?: return null
+                  var lte: Int? = null
+                  var nr: Int? = null
+                  var other: Int? = null
+                  for (c in list) {
+                      when (c) {
+                          is CellSignalStrengthLte -> {
+                              val v = c.rsrp
+                              if (v != Int.MAX_VALUE && v < -30) lte = v
+                          }
+                          is CellSignalStrengthNr -> {
+                              val v = c.ssRsrp
+                              if (v != Int.MAX_VALUE && v < -30) nr = v
+                          }
+                          else -> {
+                              val v = c.dbm
+                              if (v != Int.MAX_VALUE && v < -30) other = v
+                          }
+                      }
+                  }
+                  val sa = try { tm.dataNetworkType == 20 } catch (e: Exception) { false }
+                  return if (sa) (nr ?: lte ?: other) else (lte ?: other ?: nr)
+              }
+
+              /** Excellent >= -85 dBm, bon >= -95, moyen >= -105, très faible >= -125, sinon aucun */
+              private fun dbmLevel(d: Int): Int = when {
+                  d >= -85 -> 4
+                  d >= -95 -> 3
+                  d >= -105 -> 2
+                  d >= -125 -> 1
+                  else -> 0
+              }
+
+              /** Niveau du signal mobile de 0 à 4, calculé sur les dBm réels */
+              private fun cellLevel(): Int {
+                  return try {
+                      val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+                      val dbm = cellDbm(tm)
+                      if (dbm != null) dbmLevel(dbm)
+                      else if (Build.VERSION.SDK_INT >= 28) (tm.signalStrength?.level ?: 0)
+                      else 2
+                  } catch (e: Exception) {
+                      2
+                  }
+              }
+
+              /** Vrai si une mesure 5G est réellement présente (comme les lignes « SS RSRP » de Cellular-Z) */
+              private fun nrMeasured(tm: TelephonyManager): Boolean {
+                  if (Build.VERSION.SDK_INT < 29) return true
+                  return try {
+                      val list = tm.signalStrength?.cellSignalStrengths
+                      if (list == null) true
+                      else list.any { it is CellSignalStrengthNr && it.ssRsrp != Int.MAX_VALUE && it.ssRsrp < -30 }
+                  } catch (e: Exception) {
+                      true
+                  }
+              }
+
+              @Suppress("DEPRECATION")
+              private fun wifiValue(): ModuleValue {
+                  var lvl = 4
+                  try {
+                      val wm = app.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                      val rssi = wm.connectionInfo.rssi
+                      if (rssi > -127) {
+                          lvl = when {
+                              rssi >= -55 -> 4
+                              rssi >= -67 -> 3
+                              rssi >= -78 -> 2
+                              rssi >= -88 -> 1
+                              else -> 0
+                          }
+                      }
+                  } catch (e: Exception) {
+                  }
+                  return ModuleValue("Wi‑Fi", true, levelColor(lvl), "📶", lvl == 0)
+              }
+
+              /** Vrai seulement si le téléphone est réellement connecté à la 5G (pas juste « disponible ») */
+              @Suppress("DEPRECATION")
+              private fun nrConnected(tm: TelephonyManager): Boolean {
+                  return try {
+                      val ss = tm.serviceState ?: return false
+                      Regex("nrState\\s*=\\s*CONNECTED", RegexOption.IGNORE_CASE).containsMatchIn(ss.toString())
+                  } catch (e: Exception) {
+                      false
                   }
               }
 
@@ -1540,7 +1649,7 @@ jobs:
                       when {
                           t == 20 -> "5G"
                           // 5G NSA (4G + 5G) : l'ancre reste en LTE, seul l'override le signale
-                          o == 3 || o == 4 || o == 5 -> "5G"
+                          (o == 3 || o == 4 || o == 5) && nrConnected(tm) && nrMeasured(tm) -> "5G"
                           t == 19 || (t == 13 && (o == 1 || o == 2)) -> "4G+"
                           t == 13 -> "4G"
                           t in listOf(3, 5, 6, 8, 9, 10, 12, 14, 15, 17) -> "3G"
@@ -1553,18 +1662,15 @@ jobs:
               }
 
               private fun signal(opt: Int): ModuleValue {
-                  if (Build.VERSION.SDK_INT < 28) return ModuleValue("?", false, Pal.GRAY)
                   val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-                  val lvl = tm.signalStrength?.level ?: 0
-                  val txt = if (opt == 1) "$lvl/4" else bars(lvl, 4)
-                  val col = when (lvl) {
-                      0 -> Pal.RED
-                      1 -> Pal.ORANGE
-                      2 -> Pal.YELLOW
-                      3 -> Pal.LIME
-                      else -> Pal.GREEN
+                  val dbm = try { cellDbm(tm) } catch (e: Exception) { null }
+                  val lvl = cellLevel()
+                  val txt = when (opt) {
+                      1 -> "$lvl/4"
+                      2 -> if (dbm != null) "$dbm dBm" else "— dBm"
+                      else -> bars(lvl, 4)
                   }
-                  return ModuleValue(txt, true, col, "📡", lvl == 0)
+                  return ModuleValue(txt, true, levelColor(lvl), "📡", lvl == 0)
               }
 
               private fun weather(opt: Int): ModuleValue {
@@ -2210,6 +2316,8 @@ jobs:
 
           import android.content.Context
           import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.DashPathEffect
           import android.graphics.Paint
           import android.graphics.RectF
           import android.os.Handler
@@ -2224,6 +2332,7 @@ jobs:
           class SideView(ctx: Context, private val doAction: (Int) -> Unit) : View(ctx) {
               private val d = ctx.resources.displayMetrics.density
               private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val tp = Paint(Paint.ANTI_ALIAS_FLAG)
               private val rect = RectF()
               private val slop = ViewConfiguration.get(ctx).scaledTouchSlop * 2
               private val handler = Handler(Looper.getMainLooper())
@@ -2279,12 +2388,42 @@ jobs:
 
               override fun onDraw(canvas: Canvas) {
                   val c = Store.cfg
-                  if (!c.sideOn || !c.sideVisible) return
-                  if (c.sideOnNotif && NotifState.items.isEmpty()) return
+                  if (!c.sideOn) return
+                  val edit = Store.sideEdit
+                  if (!edit) {
+                      if (!c.sideVisible) return
+                      if (c.sideOnNotif && NotifState.items.isEmpty()) return
+                  }
                   val th = c.sideThick * d
                   val len = min(height.toFloat(), c.sideLen * d)
                   val top = (height - len) / 2f
                   val left = if (c.sideRight) width - th else 0f
+
+                  if (edit) {
+                      // pendant le réglage : on montre la zone qui réagit au toucher
+                      val w = width.toFloat()
+                      val h = height.toFloat()
+                      rect.set(0f, 0f, w, h)
+                      p.style = Paint.Style.FILL
+                      p.pathEffect = null
+                      p.color = 0x447C4DFF
+                      canvas.drawRoundRect(rect, 8f * d, 8f * d, p)
+                      p.style = Paint.Style.STROKE
+                      p.strokeWidth = 2f * d
+                      p.color = 0xFFB388FF.toInt()
+                      p.pathEffect = DashPathEffect(floatArrayOf(8f * d, 6f * d), 0f)
+                      rect.set(d, d, w - d, h - d)
+                      canvas.drawRoundRect(rect, 8f * d, 8f * d, p)
+                      p.pathEffect = null
+                      tp.color = Color.WHITE
+                      tp.textSize = min(11f * d, w * 0.5f)
+                      tp.textAlign = Paint.Align.CENTER
+                      canvas.save()
+                      canvas.rotate(-90f, w / 2f, h / 2f)
+                      canvas.drawText("ZONE TACTILE", w / 2f, h / 2f - (tp.ascent() + tp.descent()) / 2f, tp)
+                      canvas.restore()
+                  }
+
                   rect.set(left, top, left + th, top + len)
                   p.style = Paint.Style.FILL
                   p.color = c.sideColor
@@ -3021,8 +3160,9 @@ jobs:
                           sl.width = 1
                           sl.height = 1
                       }
-                      setTouchable(sl, c.sideOn)
+                      setTouchable(sl, c.sideOn && !Store.sideEdit)
                       try { wm.updateViewLayout(side, sl) } catch (e: Exception) {}
+                      side.post { side.invalidate() }
                   }
 
                   updateVisibility()
@@ -3289,7 +3429,10 @@ jobs:
                   b.addView(ui.section("LED"))
                   b.addView(ui.chips("Style", listOf("● Point", "○ Anneau", "▬ Barre", "✺ Lumineuse"), { m.ledStyle }, { m.ledStyle = it }))
                   b.addView(ui.slider("Taille", 3, 24, { m.ledSize }, { m.ledSize = it }, " dp"))
-                  b.addView(ui.toggle("Couleur automatique selon l'état", { m.autoLed }, { m.autoLed = it }))
+                  b.addView(ui.toggle(
+                      if (m.kind == Kind.NETWORK || m.kind == Kind.SIGNAL) "Couleur selon la qualité du signal (désactive pour une couleur fixe)" else "Couleur automatique selon l'état",
+                      { m.autoLed }, { m.autoLed = it }
+                  ))
                   b.addView(ui.colorRow("Couleur fixe (si auto désactivé)", { m.ledColor }, { m.ledColor = it }, false))
                   b.addView(ui.toggle("Clignotante", { m.ledBlink }, { m.ledBlink = it }))
 
@@ -3410,12 +3553,14 @@ jobs:
 
               override fun onResume() {
                   super.onResume()
+                  setSideEdit(tab == 4)
                   engine.start()
                   refreshViews()
                   if (tab == 5) showTab(5)
               }
 
               override fun onPause() {
+                  setSideEdit(false)
                   engine.stop()
                   super.onPause()
               }
@@ -3449,8 +3594,16 @@ jobs:
                   return s
               }
 
+              /** Montre (ou cache) la zone tactile de la poignée sur l'écran pendant qu'on la règle */
+              private fun setSideEdit(v: Boolean) {
+                  if (Store.sideEdit == v) return
+                  Store.sideEdit = v
+                  IslandAccessibilityService.instance?.reload()
+              }
+
               private fun showTab(i: Int) {
                   tab = i
+                  setSideEdit(i == 4)
                   for (k in 0 until tabRow.childCount) ui.styleChip(tabRow.getChildAt(k) as TextView, k == i)
                   content.removeAllViews()
                   val v = when (i) {
@@ -3622,6 +3775,7 @@ jobs:
                   val b = ui.vbox()
                   b.addView(ui.section("Poignée sur le côté de l'écran"))
                   b.addView(ui.hint("Une seconde encoche : touche-la ou glisse dessus pour ouvrir le panneau de notifications d'origine, ou lancer une autre action."))
+                  b.addView(ui.hint("Tant que cet onglet est ouvert, la zone tactile apparaît en violet pointillé sur le bord de ton écran (elle ne réagit pas au toucher pour ne pas gêner les réglages)."))
                   b.addView(ui.toggle("Activer la poignée", { c.sideOn }, { c.sideOn = it }) { rebuild() })
                   if (c.sideOn) {
                       b.addView(ui.chips("Côté", listOf("◀ Gauche", "Droite ▶"), { if (c.sideRight) 1 else 0 }, { c.sideRight = it == 1 }))
@@ -4095,8 +4249,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 6
-                  versionName = "2.2.2"
+                  versionCode = 13
+                  versionName = "2.2.9"
               }
 
               compileOptions {
@@ -4122,6 +4276,7 @@ jobs:
               <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
               <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
               <application
@@ -4226,5 +4381,5 @@ jobs:
           grep -A6 'What went wrong' build.log | head -20 | while IFS= read -r l; do echo "::error::$l"; done || true
       - uses: actions/upload-artifact@v4
         with:
-          name: CustomIsland-apk
+          name: CustomIsland-v2.2.9-apk
           path: app/build/outputs/apk/debug/app-debug.apk
