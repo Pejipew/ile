@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.4.1 (${{ github.sha }})
+run-name: Build APK 2.4.2 (${{ github.sha }})
 
 on:
   push:
@@ -160,7 +160,7 @@ jobs:
               CHARGE_TIME("Temps avant charge complète", "⏱️", dHide = true),
               BATT_TEMP("Température batterie", "🌡️", listOf("°C", "°F")),
               NETWORK("Type de connexion", "📶", listOf("Wi‑Fi / 5G / 4G…", "Simple (Wi‑Fi / Mobile)")),
-              SIGNAL("Signal mobile", "📡", listOf("Barres", "Niveau (3/4)", "Valeur (dBm)"), dLed = true, dText = false),
+              SIGNAL("Signal mobile", "📡", listOf("Barres", "Niveau (3/4)", "Valeur (dBm)", "Type de réseau (5G, 4G+…)"), dLed = true, dText = false),
               SPEED("Débit réseau", "🚀", listOf("↓ Descendant", "↑ Montant", "↓↑ Les deux")),
               NOTIF_COUNT("Notifications (nombre)", "🔔", dHide = true),
               NOTIF_ICONS("Notifications (icônes d'applis)", "🔔", listOf("2 max", "3 max", "4 max", "5 max", "6 max"), dText = false, dHide = true),
@@ -1000,6 +1000,17 @@ jobs:
                       }
                       s.edit().putString("cfg", cfg.toJson().toString()).putBoolean("mig_net_led2", true).apply()
                   }
+                  // une seule fois : la tuile Signal mobile affiche le type de réseau (5G, 4G+…) comme la tuile Type de connexion
+                  if (!s.getBoolean("mig_sig_type", false)) {
+                      for (m in cfg.mods) {
+                          if (m.kind == Kind.SIGNAL) {
+                              m.opt = 3
+                              m.showText = true
+                              m.showIcon = false
+                          }
+                      }
+                      s.edit().putString("cfg", cfg.toJson().toString()).putBoolean("mig_sig_type", true).apply()
+                  }
                   rev++
               }
 
@@ -1456,7 +1467,7 @@ jobs:
               /** Joue un son quand le téléphone passe de la 4G à la vraie 5G (connectée) */
               private fun watch5g() {
                   val gen = cellGen()
-                  val now = gen == "5G"
+                  val now = gen.startsWith("5G")
                   val prev = last5g
                   last5g = now
                   if (Store.cfg.hist5g) {
@@ -1916,11 +1927,14 @@ jobs:
                           else -> false
                       }
                       val res = when {
-                          nr -> "5G"
+                          nr -> if (o == 4 || o == 5) "5G+" else "5G"
                           t == 19 || (t == 13 && (o == 1 || o == 2)) -> "4G+"
                           t == 13 -> "4G"
-                          t in listOf(3, 5, 6, 8, 9, 10, 12, 14, 15, 17) -> "3G"
-                          t in listOf(1, 2, 4, 7, 11, 16) -> "2G"
+                          t in listOf(8, 9, 10, 15) -> "3G+"
+                          t in listOf(3, 5, 6, 12, 14, 17) -> "3G"
+                          t == 2 -> "2G+"
+                          t in listOf(1, 4, 7, 11, 16) -> "2G"
+                          t == 18 -> "Wi‑Fi"
                           else -> "Mobile"
                       }
                       Diag5g.text = "type réseau = " + t + " · override = " + o + " · état 5G = " + ns +
@@ -1940,6 +1954,7 @@ jobs:
                   val txt = when (opt) {
                       1 -> "$lvl/4"
                       2 -> if (dbm != null) "$dbm dBm" else "— dBm"
+                      3 -> cellGen()
                       else -> bars(lvl, 4)
                   }
                   return ModuleValue(txt, true, levelColor(lvl), "📡", lvl == 0)
@@ -3767,6 +3782,7 @@ jobs:
           import android.content.Context
           import android.content.Intent
           import android.content.pm.PackageManager
+          import android.os.Build
           import android.os.Bundle
           import android.os.Handler
           import android.os.Looper
@@ -3815,8 +3831,24 @@ jobs:
                   val root = LinearLayout(this)
                   root.orientation = LinearLayout.VERTICAL
                   root.setBackgroundColor(Pal.BG)
+                  val ver = TextView(this)
+                  var vName = "?"
+                  var vCode = 0L
+                  try {
+                      val pi = packageManager.getPackageInfo(packageName, 0)
+                      vName = pi.versionName ?: "?"
+                      @Suppress("DEPRECATION")
+                      vCode = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else pi.versionCode.toLong()
+                  } catch (e: Exception) {
+                  }
+                  ver.text = "Custom Island · v" + vName + " (build " + vCode + ")"
+                  ver.setTextColor(Pal.SUB)
+                  ver.textSize = 11f
+                  ver.gravity = android.view.Gravity.CENTER
+                  root.addView(ver, LinearLayout.LayoutParams(ui.MATCH, ui.WRAP))
+
                   val pl = LinearLayout.LayoutParams(ui.MATCH, ui.WRAP)
-                  pl.setMargins(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(4))
+                  pl.setMargins(ui.dp(10), ui.dp(6), ui.dp(10), ui.dp(4))
                   root.addView(preview, pl)
 
                   val hs = HorizontalScrollView(this)
@@ -4676,8 +4708,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 18
-                  versionName = "2.4.1"
+                  versionCode = 19
+                  versionName = "2.4.2"
               }
 
               compileOptions {
@@ -4806,7 +4838,15 @@ jobs:
         run: |
           grep -E '^e: ' build.log | sed 's#file:///[^ ]*/##' | head -20 | while IFS= read -r l; do echo "::error::$l"; done || true
           grep -A6 'What went wrong' build.log | head -20 | while IFS= read -r l; do echo "::error::$l"; done || true
+      - name: Rename APK with version number
+        id: ver
+        run: |
+          V=$(grep -m1 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          C=$(grep -m1 'versionCode' app/build.gradle.kts | sed 's/[^0-9]//g')
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk "out/CustomIsland-v${V}-build${C}.apk"
+          echo "name=CustomIsland-v${V}-build${C}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: CustomIsland-v2.4.1-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: ${{ steps.ver.outputs.name }}
+          path: out/*.apk
