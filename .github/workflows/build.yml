@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.3.2 (${{ github.sha }})
+run-name: Build APK 2.4.0 (${{ github.sha }})
 
 on:
   push:
@@ -679,6 +679,12 @@ jobs:
                       p("hgr", v)
                   }
 
+              var hist5g: Boolean
+                  get() = gb("h5h", true)
+                  set(v) {
+                      p("h5h", v)
+                  }
+
               var sound5g: Boolean
                   get() = gb("s5g", false)
                   set(v) {
@@ -911,6 +917,43 @@ jobs:
                   private const val DEFAULT_JSON = """{"mods":[{"id":"5609d974","kind":"TIME","zone":0,"left":true,"icon":"🕐","led":false,"ico":false,"txt":true,"hide":false,"b":true,"sx":0,"sy":0},{"id":"1c52dd44","kind":"DATE","zone":0,"left":true,"icon":"📅","led":false,"ico":false,"txt":true,"hide":false,"b":true,"sy":0},{"id":"faded531","kind":"WEATHER","zone":0,"left":true,"icon":"☀️","led":false,"ico":true,"txt":true,"hide":false,"b":true,"sy":0},{"id":"3243a870","kind":"NOTIF_ICONS","zone":0,"left":true,"icon":"🔔","led":false,"ico":true,"txt":false,"hide":true,"opt":4,"sy":0,"b":true},{"id":"6e261241","kind":"NETWORK","zone":3,"left":false,"icon":"📶","led":true,"ico":false,"txt":true,"hide":false,"aled":true,"ls":3,"lsz":7,"on":true,"b":true,"sy":0},{"id":"588b7fb9","kind":"CHARGE_WATTS","zone":3,"left":false,"icon":"⚡","led":true,"ico":false,"txt":true,"hide":true,"b":true,"lsz":7,"ls":3,"sy":0},{"id":"c5f5d289","kind":"CHARGE_TIME","zone":3,"left":false,"icon":"⏱️","led":false,"ico":false,"txt":true,"hide":true,"b":true,"sy":0},{"id":"fb4b73dd","kind":"BATTERY","zone":3,"left":false,"icon":"🔋","led":true,"ico":false,"txt":true,"hide":false,"ls":3,"lsz":7,"b":true,"sy":0}],"shape":0,"w":420,"h":33,"oy":0,"sp":10,"pe":5,"fsc":100,"hx":0,"hy":17,"hd":20,"cut":true,"htap":5,"hnot":false,"hast":0,"hgn":2,"hgc1":-16777216,"hgc2":-1841453,"hgs":true,"hga":90,"hgr":true,"haw":1,"hag":2,"hagl":0,"har":true,"has":5000,"hcy":false,"hcm":20000,"hcs":false,"pal":{"sig0":-65536,"sig1":-65536,"sig4":-16711936,"sig2":-28672,"sig3":-4096,"wifi0":-65536,"wifi1":-65536,"batt_crit":-65536,"chw_low":-65536,"chw_mid":-28672,"chw_high":-16515328,"batt_low":-28672,"halo_low":-65536,"wifi4":-16711936,"batt_plug":-16746497,"halo_charge":-16776986,"wifi3":-4096,"batt_mid":-4096,"wifi2":-28672,"bt_warm":-28672,"batt_hi":-16711936,"cs_chg":-28672,"cs_fast":-458501},"sy":585,"stw":15,"scol":-1426063361,"st":7,"stap":0,"sin":1,"sl":90,"fill":-16777216,"grad":false,"son":false,"hgc0":-65536,"hac":-65536}"""
 
                   fun default(): Config = Config(JSONObject(DEFAULT_JSON))
+              }
+          }
+
+          /** Historique des connexions 5G, gardé sur le téléphone (300 événements au maximum) */
+          object Hist5g {
+              class Ev(val t: Long, val on: Boolean, val note: String)
+
+              private fun prefs(ctx: Context): SharedPreferences =
+                  ctx.applicationContext.getSharedPreferences("island_v2", Context.MODE_PRIVATE)
+
+              fun load(ctx: Context): List<Ev> {
+                  val out = ArrayList<Ev>()
+                  try {
+                      val a = JSONArray(prefs(ctx).getString("h5g", "[]"))
+                      for (i in 0 until a.length()) {
+                          val o = a.getJSONObject(i)
+                          out.add(Ev(o.getLong("t"), o.getBoolean("o"), o.optString("n", "")))
+                      }
+                  } catch (e: Exception) {
+                  }
+                  return out
+              }
+
+              fun add(ctx: Context, on: Boolean, note: String) {
+                  try {
+                      val cur = load(ctx).toMutableList()
+                      cur.add(Ev(System.currentTimeMillis(), on, note))
+                      while (cur.size > 300) cur.removeAt(0)
+                      val a = JSONArray()
+                      for (e in cur) a.put(JSONObject().put("t", e.t).put("o", e.on).put("n", e.note))
+                      prefs(ctx).edit().putString("h5g", a.toString()).apply()
+                  } catch (e: Exception) {
+                  }
+              }
+
+              fun clear(ctx: Context) {
+                  prefs(ctx).edit().remove("h5g").apply()
               }
           }
 
@@ -1400,13 +1443,18 @@ jobs:
 
               /** Joue un son quand le téléphone passe de la 4G à la vraie 5G (connectée) */
               private fun watch5g() {
-                  if (!Store.cfg.sound5g) {
-                      last5g = null
-                      return
-                  }
-                  val now = cellGen() == "5G"
+                  val gen = cellGen()
+                  val now = gen == "5G"
                   val prev = last5g
                   last5g = now
+                  if (Store.cfg.hist5g) {
+                      if (prev == null && now) {
+                          Hist5g.add(app, true, "déjà active au démarrage")
+                      } else if (prev != null && prev != now) {
+                          Hist5g.add(app, now, if (now) "" else gen)
+                      }
+                  }
+                  if (!Store.cfg.sound5g) return
                   if (prev == false && now) {
                       val t = System.currentTimeMillis()
                       if (t - lastSoundAt > 20000L) {
@@ -3715,7 +3763,7 @@ jobs:
               private lateinit var tabRow: LinearLayout
               private var tab = 0
               private val handler = Handler(Looper.getMainLooper())
-              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "↔️ Côté", "⚙️ Options", "🌈 Couleurs")
+              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "↔️ Côté", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G")
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -3823,6 +3871,7 @@ jobs:
                       3 -> tabInfos()
                       4 -> scroll(tabSide())
                       6 -> scroll(tabColors())
+                      7 -> scroll(tabHistory())
                       else -> scroll(tabOptions())
                   }
                   content.addView(v, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
@@ -3833,6 +3882,94 @@ jobs:
                   val sy = (content.getChildAt(0) as? ScrollView)?.scrollY ?: 0
                   showTab(tab)
                   handler.post { (content.getChildAt(0) as? ScrollView)?.scrollTo(0, sy) }
+              }
+
+              // ---------------------------------------------------------------- HISTORIQUE 5G
+
+              private fun fmtDur(ms: Long): String {
+                  val sec = ms / 1000
+                  return when {
+                      sec >= 3600 -> String.format("%d h %02d min", sec / 3600, (sec % 3600) / 60)
+                      sec >= 60 -> String.format("%d min %02d s", sec / 60, sec % 60)
+                      else -> sec.toString() + " s"
+                  }
+              }
+
+              private fun tabHistory(): View {
+                  val c = Store.cfg
+                  val b = ui.vbox()
+                  b.addView(ui.section("Historique de la 5G"))
+                  b.addView(ui.toggle("Enregistrer l'historique de la 5G", { c.hist5g }, { c.hist5g = it }))
+                  b.addView(ui.hint("Chaque connexion et chaque perte de la vraie 5G est notée avec l'heure. L'historique reste sur ton téléphone (300 événements au maximum). Il n'enregistre que lorsque la barre est affichée : si tu la masques (écran de verrouillage, AOD), les changements pendant ce temps ne sont pas vus."))
+
+                  val evs = Hist5g.load(applicationContext)
+                  val now = System.currentTimeMillis()
+                  val cal = java.util.Calendar.getInstance()
+                  cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                  cal.set(java.util.Calendar.MINUTE, 0)
+                  cal.set(java.util.Calendar.SECOND, 0)
+                  cal.set(java.util.Calendar.MILLISECOND, 0)
+                  val dayStart = cal.timeInMillis
+                  val df = java.text.SimpleDateFormat("dd/MM HH:mm:ss", java.util.Locale.getDefault())
+
+                  var totalAll = 0L
+                  var totalToday = 0L
+                  var countAll = 0
+                  var countToday = 0
+                  var onStart = -1L
+                  val lines = ArrayList<String>()
+                  for (e in evs) {
+                      if (e.on) {
+                          if (onStart < 0) onStart = e.t
+                          countAll++
+                          if (e.t >= dayStart) countToday++
+                          val extra = if (e.note.isNotEmpty()) " (" + e.note + ")" else ""
+                          lines.add("✅ " + df.format(java.util.Date(e.t)) + "  5G connectée" + extra)
+                      } else {
+                          var dur = ""
+                          if (onStart >= 0) {
+                              val d = e.t - onStart
+                              totalAll += d
+                              totalToday += maxOf(0L, e.t - maxOf(onStart, dayStart))
+                              dur = "  (restée " + fmtDur(d) + ")"
+                              onStart = -1L
+                          }
+                          val to = if (e.note.isNotEmpty()) " → " + e.note else ""
+                          lines.add("❌ " + df.format(java.util.Date(e.t)) + "  5G perdue" + to + dur)
+                      }
+                  }
+                  var inProgress = ""
+                  if (onStart >= 0) {
+                      totalAll += now - onStart
+                      totalToday += maxOf(0L, now - maxOf(onStart, dayStart))
+                      inProgress = "En ce moment : 5G connectée depuis " + fmtDur(now - onStart) + "."
+                  }
+
+                  b.addView(ui.section("Résumé"))
+                  b.addView(ui.hint("Aujourd'hui : " + countToday + " connexion(s) 5G, " + fmtDur(totalToday) + " cumulées."))
+                  b.addView(ui.hint("Depuis le début de l'historique : " + countAll + " connexion(s), " + fmtDur(totalAll) + " cumulées."))
+                  if (inProgress.isNotEmpty()) b.addView(ui.hint(inProgress))
+
+                  b.addView(ui.section("Derniers événements"))
+                  if (lines.isEmpty()) {
+                      b.addView(ui.hint("Rien pour l'instant. Les événements apparaîtront ici quand le téléphone se connectera à la 5G ou la perdra."))
+                  } else {
+                      for (l in lines.asReversed().take(60)) b.addView(ui.hint(l))
+                  }
+
+                  b.addView(ui.button("↻ Actualiser") {
+                      rebuild()
+                  })
+                  b.addView(ui.button("📋 Copier l'historique") {
+                      val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                      cm.setPrimaryClip(ClipData.newPlainText("historique 5G", lines.joinToString("\n")))
+                      toast("Historique copié")
+                  })
+                  b.addView(ui.button("🗑️ Effacer l'historique") {
+                      Hist5g.clear(applicationContext)
+                      rebuild()
+                  })
+                  return b
               }
 
               // ---------------------------------------------------------------- COULEURS
@@ -4500,8 +4637,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 16
-                  versionName = "2.3.2"
+                  versionCode = 17
+                  versionName = "2.4.0"
               }
 
               compileOptions {
@@ -4632,5 +4769,5 @@ jobs:
           grep -A6 'What went wrong' build.log | head -20 | while IFS= read -r l; do echo "::error::$l"; done || true
       - uses: actions/upload-artifact@v4
         with:
-          name: CustomIsland-v2.3.2-apk
+          name: CustomIsland-v2.4.0-apk
           path: app/build/outputs/apk/debug/app-debug.apk
