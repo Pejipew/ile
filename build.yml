@@ -3782,6 +3782,7 @@ jobs:
           import android.content.Context
           import android.content.Intent
           import android.content.pm.PackageManager
+          import android.os.Build
           import android.os.Bundle
           import android.os.Handler
           import android.os.Looper
@@ -3830,8 +3831,24 @@ jobs:
                   val root = LinearLayout(this)
                   root.orientation = LinearLayout.VERTICAL
                   root.setBackgroundColor(Pal.BG)
+                  val ver = TextView(this)
+                  var vName = "?"
+                  var vCode = 0L
+                  try {
+                      val pi = packageManager.getPackageInfo(packageName, 0)
+                      vName = pi.versionName ?: "?"
+                      @Suppress("DEPRECATION")
+                      vCode = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else pi.versionCode.toLong()
+                  } catch (e: Exception) {
+                  }
+                  ver.text = "Custom Island · v" + vName + " (build " + vCode + ")"
+                  ver.setTextColor(Pal.SUB)
+                  ver.textSize = 11f
+                  ver.gravity = android.view.Gravity.CENTER
+                  root.addView(ver, LinearLayout.LayoutParams(ui.MATCH, ui.WRAP))
+
                   val pl = LinearLayout.LayoutParams(ui.MATCH, ui.WRAP)
-                  pl.setMargins(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(4))
+                  pl.setMargins(ui.dp(10), ui.dp(6), ui.dp(10), ui.dp(4))
                   root.addView(preview, pl)
 
                   val hs = HorizontalScrollView(this)
@@ -4691,8 +4708,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 18
-                  versionName = "2.4.1"
+                  versionCode = 19
+                  versionName = "2.4.2"
               }
 
               compileOptions {
@@ -4821,7 +4838,15 @@ jobs:
         run: |
           grep -E '^e: ' build.log | sed 's#file:///[^ ]*/##' | head -20 | while IFS= read -r l; do echo "::error::$l"; done || true
           grep -A6 'What went wrong' build.log | head -20 | while IFS= read -r l; do echo "::error::$l"; done || true
+      - name: Rename APK with version number
+        id: ver
+        run: |
+          V=$(grep -m1 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          C=$(grep -m1 'versionCode' app/build.gradle.kts | sed 's/[^0-9]//g')
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk "out/CustomIsland-v${V}-build${C}.apk"
+          echo "name=CustomIsland-v${V}-build${C}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: CustomIsland-v2.4.1-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: ${{ steps.ver.outputs.name }}
+          path: out/*.apk
