@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.4.0 (${{ github.sha }})
+run-name: Build APK 2.4.1 (${{ github.sha }})
 
 on:
   push:
@@ -679,6 +679,12 @@ jobs:
                       p("hgr", v)
                   }
 
+              var det5g: Int
+                  get() = gi("d5g", 0)
+                  set(v) {
+                      p("d5g", v)
+                  }
+
               var hist5g: Boolean
                   get() = gb("h5h", true)
                   set(v) {
@@ -918,6 +924,12 @@ jobs:
 
                   fun default(): Config = Config(JSONObject(DEFAULT_JSON))
               }
+          }
+
+          /** Dernier diagnostic de détection 5G (affiché dans l'onglet Historique 5G) */
+          object Diag5g {
+              @Volatile
+              var text: String = ""
           }
 
           /** Historique des connexions 5G, gardé sur le téléphone (300 événements au maximum) */
@@ -1866,38 +1878,61 @@ jobs:
                   return ModuleValue("Wi‑Fi", true, levelColor(lvl, "wifi"), "📶", lvl == 0)
               }
 
-              /** Vrai seulement si le téléphone est réellement connecté à la 5G (pas juste « disponible ») */
+              private val nrRe = Regex("nrState\\s*=\\s*([A-Za-z_]+)", RegexOption.IGNORE_CASE)
+              private var genCache = ""
+              private var genAt = 0L
+
+              /** État de la 5G lu dans le téléphone : CONNECTED, NOT_RESTRICTED, RESTRICTED, NONE... ou « illisible » */
               @Suppress("DEPRECATION")
-              private fun nrConnected(tm: TelephonyManager): Boolean {
+              private fun nrStateName(tm: TelephonyManager): String {
                   return try {
-                      val ss = tm.serviceState ?: return false
-                      Regex("nrState\\s*=\\s*CONNECTED", RegexOption.IGNORE_CASE).containsMatchIn(ss.toString())
+                      val ss = tm.serviceState ?: return "illisible"
+                      nrRe.find(ss.toString())?.groupValues?.get(1)?.uppercase() ?: "illisible"
+                  } catch (e: SecurityException) {
+                      "illisible"
                   } catch (e: Exception) {
-                      false
+                      "illisible"
                   }
               }
 
+              /** Type de réseau affiché (calculé au plus une fois par seconde) */
               private fun cellGen(): String {
-                  return try {
+                  val clock = android.os.SystemClock.elapsedRealtime()
+                  if (genCache.isNotEmpty() && clock - genAt < 800L) return genCache
+                  val r = try {
                       val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
                       var t = tm.dataNetworkType
                       if (t == 0) t = tm.voiceNetworkType
                       val o = ovrType
-                      when {
-                          t == 20 -> "5G"
-                          // 5G NSA (4G + 5G) : l'ancre reste en LTE, seul l'override le signale
-                          (o == 3 || o == 4 || o == 5) -> "5G"
+                      val ns = nrStateName(tm)
+                      val lisible = ns == "CONNECTED" || ns == "NONE" || ns == "RESTRICTED" || ns == "NOT_RESTRICTED"
+                      val large = Store.cfg.det5g == 1
+                      // 5G NSA (4G + 5G) : l'ancre reste en LTE, seuls l'état NR et l'override le signalent
+                      val nr = when {
+                          t == 20 -> true
+                          ns == "CONNECTED" -> true
+                          large -> o == 3 || o == 4 || o == 5
+                          !lisible -> (o == 3 || o == 4 || o == 5) && nrMeasured(tm)
+                          else -> false
+                      }
+                      val res = when {
+                          nr -> "5G"
                           t == 19 || (t == 13 && (o == 1 || o == 2)) -> "4G+"
                           t == 13 -> "4G"
                           t in listOf(3, 5, 6, 8, 9, 10, 12, 14, 15, 17) -> "3G"
                           t in listOf(1, 2, 4, 7, 11, 16) -> "2G"
                           else -> "Mobile"
                       }
+                      Diag5g.text = "type réseau = " + t + " · override = " + o + " · état 5G = " + ns +
+                          " · mode = " + (if (large) "large" else "strict") + " → " + res
+                      res
                   } catch (e: Exception) {
                       "Mobile"
                   }
+                  genCache = r
+                  genAt = clock
+                  return r
               }
-
               private fun signal(opt: Int): ModuleValue {
                   val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
                   val dbm = try { cellDbm(tm) } catch (e: Exception) { null }
@@ -3898,7 +3933,11 @@ jobs:
               private fun tabHistory(): View {
                   val c = Store.cfg
                   val b = ui.vbox()
-                  b.addView(ui.section("Historique de la 5G"))
+                  b.addView(ui.section("Détection de la 5G"))
+                  b.addView(ui.chips("Mode", listOf("Strict (5G réellement connectée)", "Large (comme l'icône du téléphone)"), { c.det5g.coerceIn(0, 1) }, { c.det5g = it }) { rebuild() })
+                  b.addView(ui.hint("Strict évite d'afficher 5G quand elle est seulement disponible. Si l'app affiche 4G alors que l'icône du téléphone montre 5G, passe en Large."))
+                  b.addView(ui.hint("Diagnostic : " + (if (Diag5g.text.isEmpty()) "pas encore de mesure (barre masquée ?)" else Diag5g.text)))
+                  b.addView(ui.section("Enregistrement"))
                   b.addView(ui.toggle("Enregistrer l'historique de la 5G", { c.hist5g }, { c.hist5g = it }))
                   b.addView(ui.hint("Chaque connexion et chaque perte de la vraie 5G est notée avec l'heure. L'historique reste sur ton téléphone (300 événements au maximum). Il n'enregistre que lorsque la barre est affichée : si tu la masques (écran de verrouillage, AOD), les changements pendant ce temps ne sont pas vus."))
 
@@ -4637,8 +4676,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 17
-                  versionName = "2.4.0"
+                  versionCode = 18
+                  versionName = "2.4.1"
               }
 
               compileOptions {
@@ -4769,5 +4808,5 @@ jobs:
           grep -A6 'What went wrong' build.log | head -20 | while IFS= read -r l; do echo "::error::$l"; done || true
       - uses: actions/upload-artifact@v4
         with:
-          name: CustomIsland-v2.4.0-apk
+          name: CustomIsland-v2.4.1-apk
           path: app/build/outputs/apk/debug/app-debug.apk
