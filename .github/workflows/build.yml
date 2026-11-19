@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.4.2 (${{ github.sha }})
+run-name: Build APK 2.4.3 (${{ github.sha }})
 
 on:
   push:
@@ -159,7 +159,7 @@ jobs:
               CHARGE_STATE("État de charge", "🔌", dLed = true, dText = false, dHide = true),
               CHARGE_TIME("Temps avant charge complète", "⏱️", dHide = true),
               BATT_TEMP("Température batterie", "🌡️", listOf("°C", "°F")),
-              NETWORK("Type de connexion", "📶", listOf("Wi‑Fi / 5G / 4G…", "Simple (Wi‑Fi / Mobile)")),
+              NETWORK("Type de connexion", "📶", listOf("Réseau mobile (5G / 4G+ / 3G…)", "Simple (Mobile)")),
               SIGNAL("Signal mobile", "📡", listOf("Barres", "Niveau (3/4)", "Valeur (dBm)", "Type de réseau (5G, 4G+…)"), dLed = true, dText = false),
               SPEED("Débit réseau", "🚀", listOf("↓ Descendant", "↑ Montant", "↓↑ Les deux")),
               NOTIF_COUNT("Notifications (nombre)", "🔔", dHide = true),
@@ -653,6 +653,13 @@ jobs:
                   get() = gi("fsc", 100)
                   set(v) {
                       p("fsc", v)
+                  }
+
+              /** Décalage vertical de toute la ligne d'infos (en dp) */
+              var lineY: Int
+                  get() = gi("ly", 0)
+                  set(v) {
+                      p("ly", v)
                   }
 
               var haloGradCount: Int
@@ -1782,21 +1789,14 @@ jobs:
               }
 
               private fun network(simple: Boolean): ModuleValue {
-                  val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-                  val net = cm.activeNetwork ?: return ModuleValue("Hors ligne", false, tc("offline", Pal.RED), "📵", true)
-                  val caps = cm.getNetworkCapabilities(net) ?: return ModuleValue("Hors ligne", false, tc("offline", Pal.RED), "📵", true)
-                  return when {
-                      caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> wifiValue()
-                      caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
-                          val g = if (simple) "Mobile" else cellGen()
-                          // le texte donne le type de réseau, la LED donne la qualité du signal
-                          val lvl = cellLevel()
-                          ModuleValue(g, true, levelColor(lvl), "📶", lvl == 0)
-                      }
-                      caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> ModuleValue("Ethernet", true, tc("eth", Pal.GREEN), "🔌")
-                      caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> ModuleValue("Bluetooth", true, tc("bt_tether", Pal.BLUE), "🔵")
-                      else -> ModuleValue("Réseau", true, Pal.WHITE, "📶")
-                  }
+                  // Cette tuile ne parle que du réseau mobile, même quand le Wi‑Fi est connecté
+                  // (le Wi‑Fi a sa propre tuile « Wi‑Fi activé »)
+                  val airplane = Settings.Global.getInt(app.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
+                  if (airplane) return ModuleValue("Hors ligne", false, tc("offline", Pal.RED), "📵", true)
+                  val g = if (simple) "Mobile" else cellGen()
+                  // le texte donne le type de réseau, la LED donne la qualité du signal
+                  val lvl = cellLevel()
+                  return ModuleValue(g, true, levelColor(lvl), "📶", lvl == 0)
               }
 
               /** Couleur de LED selon la qualité du signal : 0 aucun (rouge clignotant), 1 très faible (rouge), 2 moyen (orange), 3 bon (jaune), 4 excellent (vert) */
@@ -2254,7 +2254,7 @@ jobs:
                   val v = vals[m.id] ?: return
                   if (m.kind == Kind.SPACER) return
                   val g = 4f * d * s
-                  val cy = cy0 + m.shiftY * d
+                  val cy = cy0 + (m.shiftY + Store.cfg.lineY) * d
                   var x = x0 + m.shiftX * d
                   var first = true
                   if (m.showLed) {
@@ -4154,6 +4154,8 @@ jobs:
                   b.addView(ui.section("Police"))
                   b.addView(ui.slider("Taille de toutes les polices", 50, 200, { c.fontScale }, { c.fontScale = it }, " %"))
                   b.addView(ui.hint("Agrandit ou réduit le texte de toutes les infos d'un coup (100 % = tailles réglées info par info). Si la barre est pleine, le texte se réduit tout seul : élargis alors la barre dans l'onglet Forme."))
+                  b.addView(ui.slider("Position verticale de toute la ligne", -30, 30, { c.lineY }, { c.lineY = it }, " dp"))
+                  b.addView(ui.hint("Monte (valeur négative) ou descend (valeur positive) toutes les infos d'un coup, sans toucher au décalage fin de chaque info."))
                   return b
               }
 
@@ -4708,8 +4710,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 19
-                  versionName = "2.4.2"
+                  versionCode = 20
+                  versionName = "2.4.3"
               }
 
               compileOptions {
