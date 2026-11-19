@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.3.0 (${{ github.sha }})
+run-name: Build APK 2.3.2 (${{ github.sha }})
 
 on:
   push:
@@ -679,6 +679,12 @@ jobs:
                       p("hgr", v)
                   }
 
+              var sound5g: Boolean
+                  get() = gb("s5g", false)
+                  set(v) {
+                      p("s5g", v)
+                  }
+
               fun haloGradColor(i: Int): Int {
                   val d = intArrayOf(
                       0xFFFF1744.toInt(), 0xFF2979FF.toInt(), 0xFF00E676.toInt(),
@@ -901,16 +907,10 @@ jobs:
               }
 
               companion object {
-                  fun default(): Config {
-                      val c = Config(JSONObject())
-                      c.mods.add(Mod.create(Kind.TIME, true))
-                      c.mods.add(Mod.create(Kind.WEATHER, true))
-                      c.mods.add(Mod.create(Kind.NOTIF_ICONS, false))
-                      c.mods.add(Mod.create(Kind.NETWORK, false))
-                      c.mods.add(Mod.create(Kind.BATTERY, false))
-                      c.mods.add(Mod.create(Kind.CHARGE_WATTS, false))
-                      return c
-                  }
+                  /** Réglages de Pierre-Jean (exportés depuis l'app) : utilisés à la première ouverture et au « Tout réinitialiser » */
+                  private const val DEFAULT_JSON = """{"mods":[{"id":"5609d974","kind":"TIME","zone":0,"left":true,"icon":"🕐","led":false,"ico":false,"txt":true,"hide":false,"b":true,"sx":0,"sy":0},{"id":"1c52dd44","kind":"DATE","zone":0,"left":true,"icon":"📅","led":false,"ico":false,"txt":true,"hide":false,"b":true,"sy":0},{"id":"faded531","kind":"WEATHER","zone":0,"left":true,"icon":"☀️","led":false,"ico":true,"txt":true,"hide":false,"b":true,"sy":0},{"id":"3243a870","kind":"NOTIF_ICONS","zone":0,"left":true,"icon":"🔔","led":false,"ico":true,"txt":false,"hide":true,"opt":4,"sy":0,"b":true},{"id":"6e261241","kind":"NETWORK","zone":3,"left":false,"icon":"📶","led":true,"ico":false,"txt":true,"hide":false,"aled":true,"ls":3,"lsz":7,"on":true,"b":true,"sy":0},{"id":"588b7fb9","kind":"CHARGE_WATTS","zone":3,"left":false,"icon":"⚡","led":true,"ico":false,"txt":true,"hide":true,"b":true,"lsz":7,"ls":3,"sy":0},{"id":"c5f5d289","kind":"CHARGE_TIME","zone":3,"left":false,"icon":"⏱️","led":false,"ico":false,"txt":true,"hide":true,"b":true,"sy":0},{"id":"fb4b73dd","kind":"BATTERY","zone":3,"left":false,"icon":"🔋","led":true,"ico":false,"txt":true,"hide":false,"ls":3,"lsz":7,"b":true,"sy":0}],"shape":0,"w":420,"h":33,"oy":0,"sp":10,"pe":5,"fsc":100,"hx":0,"hy":17,"hd":20,"cut":true,"htap":5,"hnot":false,"hast":0,"hgn":2,"hgc1":-16777216,"hgc2":-1841453,"hgs":true,"hga":90,"hgr":true,"haw":1,"hag":2,"hagl":0,"har":true,"has":5000,"hcy":false,"hcm":20000,"hcs":false,"pal":{"sig0":-65536,"sig1":-65536,"sig4":-16711936,"sig2":-28672,"sig3":-4096,"wifi0":-65536,"wifi1":-65536,"batt_crit":-65536,"chw_low":-65536,"chw_mid":-28672,"chw_high":-16515328,"batt_low":-28672,"halo_low":-65536,"wifi4":-16711936,"batt_plug":-16746497,"halo_charge":-16776986,"wifi3":-4096,"batt_mid":-4096,"wifi2":-28672,"bt_warm":-28672,"batt_hi":-16711936,"cs_chg":-28672,"cs_fast":-458501},"sy":585,"stw":15,"scol":-1426063361,"st":7,"stap":0,"sin":1,"sl":90,"fill":-16777216,"grad":false,"son":false,"hgc0":-65536,"hac":-65536}"""
+
+                  fun default(): Config = Config(JSONObject(DEFAULT_JSON))
               }
           }
 
@@ -1241,6 +1241,8 @@ jobs:
           import android.hardware.camera2.CameraManager
           import android.location.LocationManager
           import android.media.AudioManager
+          import android.media.Ringtone
+          import android.media.RingtoneManager
           import android.media.MediaMetadata
           import android.media.session.MediaSessionManager
           import android.media.session.PlaybackState
@@ -1308,6 +1310,7 @@ jobs:
                   override fun run() {
                       if (!running) return
                       sampleSpeed()
+                      watch5g()
                       Weather.maybeRefresh(app) { onUpdate() }
                       onUpdate()
                       handler.postDelayed(this, if (fast) 500L else 1000L)
@@ -1388,6 +1391,34 @@ jobs:
               private class DisplayLegacy(val f: (Int) -> Unit) : PhoneStateListener() {
                   override fun onDisplayInfoChanged(telephonyDisplayInfo: TelephonyDisplayInfo) {
                       f(telephonyDisplayInfo.overrideNetworkType)
+                  }
+              }
+
+              private var last5g: Boolean? = null
+              private var lastSoundAt = 0L
+              private var ringRef: Ringtone? = null
+
+              /** Joue un son quand le téléphone passe de la 4G à la vraie 5G (connectée) */
+              private fun watch5g() {
+                  if (!Store.cfg.sound5g) {
+                      last5g = null
+                      return
+                  }
+                  val now = cellGen() == "5G"
+                  val prev = last5g
+                  last5g = now
+                  if (prev == false && now) {
+                      val t = System.currentTimeMillis()
+                      if (t - lastSoundAt > 20000L) {
+                          lastSoundAt = t
+                          try {
+                              val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                              val r = RingtoneManager.getRingtone(app, uri)
+                              ringRef = r
+                              r.play()
+                          } catch (e: Exception) {
+                          }
+                      }
                   }
               }
 
@@ -4175,6 +4206,10 @@ jobs:
                   b.addView(ui.chips("Appui court", acts, { c.tapAction }, { c.tapAction = it }))
                   b.addView(ui.chips("Appui long", acts, { c.longAction }, { c.longAction = it }))
 
+                  b.addView(ui.section("Son"))
+                  b.addView(ui.toggle("Jouer un son quand la vraie 5G se connecte", { c.sound5g }, { c.sound5g = it }))
+                  b.addView(ui.hint("Le son est celui de tes notifications (il suit leur volume et le mode silencieux). Il ne se joue qu'au passage de la 4G à la 5G, pas à chaque vérification, et pas plus d'une fois toutes les 20 secondes. Il ne fonctionne que si la barre est affichée."))
+
                   b.addView(ui.section("Sauvegarde"))
                   b.addView(ui.buttons(listOf("📋 Copier ma config", "📥 Coller une config", "♻️ Tout réinitialiser")) { i ->
                       when (i) {
@@ -4465,8 +4500,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 14
-                  versionName = "2.3.0"
+                  versionCode = 16
+                  versionName = "2.3.2"
               }
 
               compileOptions {
@@ -4597,5 +4632,5 @@ jobs:
           grep -A6 'What went wrong' build.log | head -20 | while IFS= read -r l; do echo "::error::$l"; done || true
       - uses: actions/upload-artifact@v4
         with:
-          name: CustomIsland-v2.3.0-apk
+          name: CustomIsland-v2.3.2-apk
           path: app/build/outputs/apk/debug/app-debug.apk
