@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.4.5 (${{ github.sha }})
+run-name: Build APK 2.4.6 (${{ github.sha }})
 
 on:
   push:
@@ -64,7 +64,8 @@ jobs:
                       PalEntry("sig3", "3 barres (bon)", Pal.YELLOW),
                       PalEntry("sig4", "4 barres (excellent)", Pal.GREEN)
                   )),
-                  PalGroup("📶 Wi‑Fi (qualité du signal)", "Une couleur par niveau de réception Wi‑Fi.", listOf(
+                  PalGroup("📶 Wi‑Fi (qualité du signal)", "Une couleur par niveau de réception Wi‑Fi. Éteint : gris. Allumé sans connexion : orange.", listOf(
+                      PalEntry("wifi_idle", "Wi‑Fi allumé mais non connecté", Pal.ORANGE),
                       PalEntry("wifi0", "0 barre (clignote)", Pal.RED),
                       PalEntry("wifi1", "1 barre (très faible)", Pal.RED),
                       PalEntry("wifi2", "2 barres (moyen)", Pal.ORANGE),
@@ -111,7 +112,6 @@ jobs:
                       PalEntry("ring_silent", "Silence", Pal.RED)
                   )),
                   PalGroup("🔘 Interrupteurs (quand c'est activé)", "", listOf(
-                      PalEntry("wifi_on", "Wi‑Fi activé", Pal.GREEN),
                       PalEntry("bt_on", "Bluetooth activé", Pal.BLUE),
                       PalEntry("gps_on", "Localisation activée", Pal.GREEN),
                       PalEntry("airplane", "Mode avion", Pal.ORANGE),
@@ -1714,8 +1714,35 @@ jobs:
                           ModuleValue(sw(m, on, "On", "Off"), on, if (on) tc("bt_on", Pal.BLUE) else Pal.GRAY)
                       }
                       Kind.WIFI_STATE -> {
-                          val on = Settings.Global.getInt(app.contentResolver, "wifi_on", 0) != 0
-                          ModuleValue(sw(m, on, "On", "Off"), on, if (on) tc("wifi_on", Pal.GREEN) else Pal.GRAY)
+                          val wm = app.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                          val on = try {
+                              wm.isWifiEnabled
+                          } catch (e: Exception) {
+                              Settings.Global.getInt(app.contentResolver, "wifi_on", 0) != 0
+                          }
+                          if (!on) {
+                              // Wi‑Fi éteint : LED grise
+                              ModuleValue(sw(m, false, "On", "Off"), false, Pal.GRAY)
+                          } else {
+                              var connected = false
+                              try {
+                                  val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                                  @Suppress("DEPRECATION")
+                                  for (n in cm.allNetworks) {
+                                      val c = cm.getNetworkCapabilities(n)
+                                      if (c != null && c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) connected = true
+                                  }
+                              } catch (e: Exception) {
+                              }
+                              if (!connected) {
+                                  // Wi‑Fi allumé mais relié à aucun réseau : LED orange
+                                  ModuleValue(sw(m, true, "On", "Off"), true, tc("wifi_idle", Pal.ORANGE))
+                              } else {
+                                  // connecté : la LED suit la qualité de réception (rouge → vert), clignote à 0 barre
+                                  val lvl = wifiLevelNow()
+                                  ModuleValue(sw(m, true, "On", "Off"), true, levelColor(lvl, "wifi"), null, lvl == 0)
+                              }
+                          }
                       }
                       Kind.AIRPLANE -> {
                           val on = Settings.Global.getInt(app.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
@@ -1886,6 +1913,26 @@ jobs:
                   } catch (e: Exception) {
                       true
                   }
+              }
+
+              /** Niveau de réception Wi‑Fi de 0 à 4 (4 si illisible) */
+              @Suppress("DEPRECATION")
+              private fun wifiLevelNow(): Int {
+                  try {
+                      val wm = app.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                      val rssi = wm.connectionInfo.rssi
+                      if (rssi > -127) {
+                          return when {
+                              rssi >= -55 -> 4
+                              rssi >= -67 -> 3
+                              rssi >= -78 -> 2
+                              rssi >= -88 -> 1
+                              else -> 0
+                          }
+                      }
+                  } catch (e: Exception) {
+                  }
+                  return 4
               }
 
               @Suppress("DEPRECATION")
@@ -4736,8 +4783,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 22
-                  versionName = "2.4.5"
+                  versionCode = 23
+                  versionName = "2.4.6"
               }
 
               compileOptions {
