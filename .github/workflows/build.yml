@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.4.3 (${{ github.sha }})
+run-name: Build APK 2.4.4 (${{ github.sha }})
 
 on:
   push:
@@ -1913,7 +1913,11 @@ jobs:
                   val r = try {
                       val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
                       var t = tm.dataNetworkType
-                      if (t == 0) t = tm.voiceNetworkType
+                      // en Wi‑Fi, certains téléphones annoncent « IWLAN » (18) : on lit alors le vrai réseau mobile (voix)
+                      if (t == 0 || t == 18) {
+                          val vt = tm.voiceNetworkType
+                          if (vt != 0 && vt != 18) t = vt
+                      }
                       val o = ovrType
                       val ns = nrStateName(tm)
                       val lisible = ns == "CONNECTED" || ns == "NONE" || ns == "RESTRICTED" || ns == "NOT_RESTRICTED"
@@ -1934,7 +1938,6 @@ jobs:
                           t in listOf(3, 5, 6, 12, 14, 17) -> "3G"
                           t == 2 -> "2G+"
                           t in listOf(1, 4, 7, 11, 16) -> "2G"
-                          t == 18 -> "Wi‑Fi"
                           else -> "Mobile"
                       }
                       Diag5g.text = "type réseau = " + t + " · override = " + o + " · état 5G = " + ns +
@@ -4710,8 +4713,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 20
-                  versionName = "2.4.3"
+                  versionCode = 21
+                  versionName = "2.4.4"
               }
 
               compileOptions {
