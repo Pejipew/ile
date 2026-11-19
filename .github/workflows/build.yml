@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.4.4 (${{ github.sha }})
+run-name: Build APK 2.4.5 (${{ github.sha }})
 
 on:
   push:
@@ -288,6 +288,19 @@ jobs:
                   get() = gs("text", "")
                   set(v) {
                       p("text", v)
+                  }
+
+              /** Texte personnalisé d'un interrupteur quand il est activé / désactivé (vide = texte d'origine) */
+              var textOn: String
+                  get() = gs("ton", "")
+                  set(v) {
+                      p("ton", v)
+                  }
+
+              var textOff: String
+                  get() = gs("toff", "")
+                  set(v) {
+                      p("toff", v)
                   }
 
               var autoLed: Boolean
@@ -1698,21 +1711,21 @@ jobs:
                       Kind.WEATHER -> weather(opt)
                       Kind.BLUETOOTH -> {
                           val on = Settings.Global.getInt(app.contentResolver, "bluetooth_on", 0) != 0
-                          ModuleValue(if (on) "On" else "Off", on, if (on) tc("bt_on", Pal.BLUE) else Pal.GRAY)
+                          ModuleValue(sw(m, on, "On", "Off"), on, if (on) tc("bt_on", Pal.BLUE) else Pal.GRAY)
                       }
                       Kind.WIFI_STATE -> {
                           val on = Settings.Global.getInt(app.contentResolver, "wifi_on", 0) != 0
-                          ModuleValue(if (on) "On" else "Off", on, if (on) tc("wifi_on", Pal.GREEN) else Pal.GRAY)
+                          ModuleValue(sw(m, on, "On", "Off"), on, if (on) tc("wifi_on", Pal.GREEN) else Pal.GRAY)
                       }
                       Kind.AIRPLANE -> {
                           val on = Settings.Global.getInt(app.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
-                          ModuleValue("Avion", on, if (on) tc("airplane", Pal.ORANGE) else Pal.GRAY)
+                          ModuleValue(sw(m, on, "Avion", "Avion"), on, if (on) tc("airplane", Pal.ORANGE) else Pal.GRAY)
                       }
                       Kind.DND -> {
                           val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                           val f = nm.currentInterruptionFilter
                           val on = f != NotificationManager.INTERRUPTION_FILTER_ALL && f != NotificationManager.INTERRUPTION_FILTER_UNKNOWN
-                          ModuleValue("NPD", on, if (on) tc("dnd", Pal.PURPLE) else Pal.GRAY)
+                          ModuleValue(sw(m, on, "NPD", "NPD"), on, if (on) tc("dnd", Pal.PURPLE) else Pal.GRAY)
                       }
                       Kind.RINGER -> {
                           val am = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -1734,7 +1747,7 @@ jobs:
                               ModuleValue(f.format(Date(info.triggerTime)), true, tc("alarm", Pal.YELLOW))
                           }
                       }
-                      Kind.TORCH -> ModuleValue("On", torchOn, if (torchOn) tc("torch", Pal.YELLOW) else Pal.GRAY)
+                      Kind.TORCH -> ModuleValue(sw(m, torchOn, "On", "On"), torchOn, if (torchOn) tc("torch", Pal.YELLOW) else Pal.GRAY)
                       Kind.VOLUME -> {
                           val am = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
                           val st = arrayOf(AudioManager.STREAM_MUSIC, AudioManager.STREAM_RING, AudioManager.STREAM_VOICE_CALL, AudioManager.STREAM_ALARM)[opt.coerceIn(0, 3)]
@@ -1775,7 +1788,7 @@ jobs:
                       Kind.LOCATION -> {
                           val lm = app.getSystemService(Context.LOCATION_SERVICE) as LocationManager
                           val on = if (Build.VERSION.SDK_INT >= 28) lm.isLocationEnabled else true
-                          ModuleValue(if (on) "GPS" else "Off", on, if (on) tc("gps_on", Pal.GREEN) else Pal.GRAY)
+                          ModuleValue(sw(m, on, "GPS", "Off"), on, if (on) tc("gps_on", Pal.GREEN) else Pal.GRAY)
                       }
                       Kind.CUSTOM -> ModuleValue(m.text, true, Pal.WHITE)
                       Kind.SPACER -> ModuleValue("", true, Pal.WHITE)
@@ -1797,6 +1810,12 @@ jobs:
                   // le texte donne le type de réseau, la LED donne la qualité du signal
                   val lvl = cellLevel()
                   return ModuleValue(g, true, levelColor(lvl), "📶", lvl == 0)
+              }
+
+              /** Texte d'un interrupteur : celui choisi par la personne (activé / désactivé), sinon le texte d'origine */
+              private fun sw(m: Mod, on: Boolean, dOn: String, dOff: String): String {
+                  val custom = if (on) m.textOn else m.textOff
+                  return if (custom.isNotEmpty()) custom else (if (on) dOn else dOff)
               }
 
               /** Couleur de LED selon la qualité du signal : 0 aucun (rouge clignotant), 1 très faible (rouge), 2 moyen (orange), 3 bon (jaune), 4 excellent (vert) */
@@ -3708,6 +3727,10 @@ jobs:
                   if (m.kind == Kind.CUSTOM) {
                       b.addView(ui.edit("Ton texte", { m.text }, { m.text = it }, "Hello"))
                   }
+                  if (m.kind in listOf(Kind.WIFI_STATE, Kind.BLUETOOTH, Kind.AIRPLANE, Kind.DND, Kind.TORCH, Kind.LOCATION)) {
+                      b.addView(ui.edit("Texte quand c'est activé (vide = texte d'origine)", { m.textOn }, { m.textOn = it }, "ex : Wi‑Fi"))
+                      b.addView(ui.edit("Texte quand c'est désactivé (vide = texte d'origine)", { m.textOff }, { m.textOff = it }, "ex : Off"))
+                  }
                   b.addView(ui.edit("Mot placé devant la valeur (optionnel)", { m.label }, { m.label = it }, "ex : Bat "))
 
                   b.addView(ui.section("Icône"))
@@ -4713,8 +4736,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 21
-                  versionName = "2.4.4"
+                  versionCode = 22
+                  versionName = "2.4.5"
               }
 
               compileOptions {
