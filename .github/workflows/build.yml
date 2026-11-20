@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.6.1 (${{ github.sha }})
+run-name: Build APK 2.7.0 (${{ github.sha }})
 
 on:
   push:
@@ -1040,6 +1040,118 @@ jobs:
                   }
 
 
+          /** ---- Barre de masquage (pixels morts) : tout en pixels réels ---- */
+          var maskOn: Boolean
+              get() = gb("mkon", false)
+              set(v) {
+                  p("mkon", v)
+              }
+
+          var maskW: Int
+              get() = gi("mkw", 600)
+              set(v) {
+                  p("mkw", v)
+              }
+
+          var maskH: Int
+              get() = gi("mkh", 60)
+              set(v) {
+                  p("mkh", v)
+              }
+
+          /** Décalage horizontal par rapport au centre de l'écran, en pixels */
+          var maskX: Int
+              get() = gi("mkx", 0)
+              set(v) {
+                  p("mkx", v)
+              }
+
+          /** Distance depuis le haut de l'écran, en pixels */
+          var maskY: Int
+              get() = gi("mky", 0)
+              set(v) {
+                  p("mky", v)
+              }
+
+          var maskColor: Int
+              get() = gi("mkcol", 0xFF000000.toInt())
+              set(v) {
+                  p("mkcol", v)
+              }
+
+          /** Nombre de points sur le bord du haut et sur le bord du bas */
+          var maskN: Int
+              get() = gi("mkn", 7).coerceIn(2, 25)
+              set(v) {
+                  p("mkn", v)
+              }
+
+          var maskRound: Int
+              get() = gi("mkrd", 0)
+              set(v) {
+                  p("mkrd", v)
+              }
+
+          var maskSmooth: Boolean
+              get() = gb("mksm", false)
+              set(v) {
+                  p("mksm", v)
+              }
+
+          /** Afficher aussi le masque quand la barre est cachée (verrouillage, AOD, paysage) */
+          var maskWhenHidden: Boolean
+              get() = gb("mkwh", false)
+              set(v) {
+                  p("mkwh", v)
+              }
+
+          /** Applis (noms de paquets) dans lesquelles le masque remplace la barre */
+          var maskApps: List<String>
+              get() {
+                  val a = j.optJSONArray("mkapps") ?: return emptyList()
+                  return List(a.length()) { a.optString(it) }
+              }
+              set(v) {
+                  val a = JSONArray()
+                  for (x in v) a.put(x)
+                  p("mkapps", a)
+              }
+
+          /** Décalage [dx, dy] en pixels du point i du bord du haut (top = true) ou du bord du bas */
+          fun maskPt(top: Boolean, i: Int): IntArray {
+              val a = j.optJSONArray(if (top) "mktop" else "mkbot")
+              if (a == null || a.length() < i * 2 + 2) return intArrayOf(0, 0)
+              return intArrayOf(a.optInt(i * 2, 0), a.optInt(i * 2 + 1, 0))
+          }
+
+          fun setMaskPt(top: Boolean, i: Int, dx: Int, dy: Int) {
+              val k = if (top) "mktop" else "mkbot"
+              val old = j.optJSONArray(k)
+              val n = maxOf(25, i + 1)
+              val a = JSONArray()
+              for (q in 0 until n * 2) a.put(if (old != null) old.optInt(q, 0) else 0)
+              a.put(i * 2, dx)
+              a.put(i * 2 + 1, dy)
+              j.put(k, a)
+              Store.rev++
+          }
+
+          fun resetMaskPts() {
+              j.remove("mktop")
+              j.remove("mkbot")
+              Store.rev++
+          }
+
+          /** Recopie le côté gauche sur le côté droit (miroir) */
+          fun mirrorMaskPts() {
+              val n = maskN
+              for (top in listOf(true, false)) {
+                  for (i in 0 until n / 2) {
+                      val q = maskPt(top, i)
+                      setMaskPt(top, n - 1 - i, -q[0], q[1])
+                  }
+              }
+          }
               fun toJson(): JSONObject {
                   val a = JSONArray()
                   for (m in mods) a.put(m.j)
@@ -1105,6 +1217,17 @@ jobs:
               /** Vrai pendant le réglage de la poignée latérale : on montre sa zone tactile */
               @Volatile
               var sideEdit = false
+
+              /** Vrai pendant que l'onglet Masque est ouvert : on montre le masque avec son contour */
+              @Volatile
+              var maskEdit = false
+
+              /** Point du masque en cours de réglage (bord du haut ou du bas, numéro) */
+              @Volatile
+              var maskSelTop = true
+
+              @Volatile
+              var maskSelIdx = 0
               var cfg: Config = Config(JSONObject())
               private var sp: SharedPreferences? = null
 
@@ -3357,6 +3480,99 @@ jobs:
           }
           KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/MaskView.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.content.Context
+          import android.graphics.Canvas
+          import android.graphics.CornerPathEffect
+          import android.graphics.Paint
+          import android.graphics.Path
+          import android.view.View
+
+          /** Barre de masquage : un contour à points réglables, rempli de la couleur choisie, pour cacher les pixels morts */
+          class MaskView(ctx: Context) : View(ctx) {
+              companion object {
+                  /** Place gardée sous la forme (en pixels) pour que les points du bas puissent descendre */
+                  const val EXTRA = 140
+              }
+
+              private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val line = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
+
+              init {
+                  fill.style = Paint.Style.FILL
+                  line.style = Paint.Style.STROKE
+                  line.strokeWidth = 2f
+                  line.color = 0xFF18FFFF.toInt()
+                  dot.style = Paint.Style.FILL
+                  dot.color = 0xFFFF1744.toInt()
+              }
+
+              /** Coordonnées réelles (en pixels de l'écran) des points : bord du haut de gauche à droite, puis bord du bas de droite à gauche */
+              private fun pts(c: Config, xs: FloatArray, ys: FloatArray) {
+                  val n = c.maskN
+                  val x0 = (width / 2 + c.maskX - c.maskW / 2).toFloat()
+                  val w = c.maskW.toFloat()
+                  val yTop = c.maskY.toFloat()
+                  val yBot = (c.maskY + c.maskH).toFloat()
+                  for (i in 0 until n) {
+                      val fx = Math.round(w * i / (n - 1)).toFloat()
+                      val t = c.maskPt(true, i)
+                      xs[i] = x0 + fx + t[0]
+                      ys[i] = yTop + t[1]
+                      val b = c.maskPt(false, i)
+                      val k = n * 2 - 1 - i
+                      xs[k] = x0 + fx + b[0]
+                      ys[k] = yBot + b[1]
+                  }
+              }
+
+              private fun buildPath(c: Config, xs: FloatArray, ys: FloatArray): Path {
+                  val m = xs.size
+                  val p = Path()
+                  p.moveTo(xs[0], ys[0])
+                  if (!c.maskSmooth) {
+                      for (i in 1 until m) p.lineTo(xs[i], ys[i])
+                  } else {
+                      for (i in 0 until m) {
+                          val i0 = (i - 1 + m) % m
+                          val i2 = (i + 1) % m
+                          val i3 = (i + 2) % m
+                          p.cubicTo(
+                              xs[i] + (xs[i2] - xs[i0]) / 6f, ys[i] + (ys[i2] - ys[i0]) / 6f,
+                              xs[i2] - (xs[i3] - xs[i]) / 6f, ys[i2] - (ys[i3] - ys[i]) / 6f,
+                              xs[i2], ys[i2]
+                          )
+                      }
+                  }
+                  p.close()
+                  return p
+              }
+
+              override fun onDraw(canvas: Canvas) {
+                  val c = Store.cfg
+                  val n = c.maskN
+                  val xs = FloatArray(n * 2)
+                  val ys = FloatArray(n * 2)
+                  pts(c, xs, ys)
+                  val path = buildPath(c, xs, ys)
+                  fill.color = c.maskColor
+                  val pe = if (!c.maskSmooth && c.maskRound > 0) CornerPathEffect(c.maskRound.toFloat()) else null
+                  fill.pathEffect = pe
+                  canvas.drawPath(path, fill)
+                  if (Store.maskEdit) {
+                      line.pathEffect = pe
+                      canvas.drawPath(path, line)
+                      val i = Store.maskSelIdx.coerceIn(0, n - 1)
+                      val k = if (Store.maskSelTop) i else n * 2 - 1 - i
+                      canvas.drawCircle(xs[k], ys[k], 7f, dot)
+                  }
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
           cat > app/src/main/java/com/example/island/ColorPicker.kt <<'KOTLIN_EOF'
           package com.example.island
 
@@ -3894,10 +4110,14 @@ jobs:
               private val halo = HaloView(svc, engine)
               private val notch = View(svc)
               private val side = SideView(svc) { act(it) }
+              private val mask = MaskView(svc)
               private var barLp: WindowManager.LayoutParams? = null
               private var haloLp: WindowManager.LayoutParams? = null
               private var notchLp: WindowManager.LayoutParams? = null
               private var sideLp: WindowManager.LayoutParams? = null
+              private var maskLp: WindowManager.LayoutParams? = null
+              @Volatile
+              private var fgPkg: String = ""
               private var added = false
 
               private val displayListener = object : DisplayManager.DisplayListener {
@@ -3985,6 +4205,8 @@ jobs:
                   val hl = makeLp(10, 10, false)
                   val nl = makeLp(10, 10, false)
                   val sl = makeLp(10, 10, false)
+                  val ml = makeLp(10, 10, false)
+                  maskLp = ml
                   barLp = bl
                   haloLp = hl
                   notchLp = nl
@@ -3994,6 +4216,7 @@ jobs:
                       wm.addView(halo, hl)
                       wm.addView(notch, nl)
                       wm.addView(side, sl)
+                      wm.addView(mask, ml)
                       added = true
                   } catch (e: Exception) {
                       added = false
@@ -4018,6 +4241,7 @@ jobs:
                       try { wm.removeView(halo) } catch (e: Exception) {}
                       try { wm.removeView(notch) } catch (e: Exception) {}
                       try { wm.removeView(side) } catch (e: Exception) {}
+                      try { wm.removeView(mask) } catch (e: Exception) {}
                       try { dm.unregisterDisplayListener(displayListener) } catch (e: Exception) {}
                       try { svc.unregisterReceiver(receiver) } catch (e: Exception) {}
                       added = false
@@ -4094,6 +4318,17 @@ jobs:
                       side.post { side.invalidate() }
                   }
 
+                  // masque : fenêtre de la largeur de l'écran, la forme est dessinée en pixels réels à l'intérieur
+                  val ml = maskLp
+                  if (ml != null) {
+                      ml.width = svc.resources.displayMetrics.widthPixels
+                      ml.height = c.maskY + c.maskH + MaskView.EXTRA
+                      ml.x = 0
+                      ml.y = 0
+                      try { wm.updateViewLayout(mask, ml) } catch (e: Exception) {}
+                      mask.post { mask.invalidate() }
+                  }
+
                   updateVisibility()
                   refresh()
               }
@@ -4116,15 +4351,29 @@ jobs:
                   val land = svc.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
                   val hidden = (c.hideAod && aod) || (c.hideLock && locked) || (c.hideLand && land)
 
-                  val vis = if (hidden) View.INVISIBLE else View.VISIBLE
+                  // le masque remplace la barre dans les applis choisies (et pendant le réglage du masque)
+                  val inApp = c.maskOn && !aod && !locked && fgPkg.isNotEmpty() && c.maskApps.contains(fgPkg)
+                  val replace = Store.maskEdit || inApp
+                  val maskShow = replace || (c.maskOn && c.maskWhenHidden && hidden)
+                  val off = hidden || replace
+
+                  val vis = if (off) View.INVISIBLE else View.VISIBLE
                   bar.visibility = vis
                   halo.visibility = vis
                   notch.visibility = vis
                   side.visibility = vis
+                  mask.visibility = if (maskShow) View.VISIBLE else View.INVISIBLE
                   bar.syncAnim()
                   halo.syncAnim()
 
-                  if (hidden || st == Display.STATE_OFF) engine.stop() else engine.start()
+                  if (off || st == Display.STATE_OFF) engine.stop() else engine.start()
+              }
+
+              /** Appelé quand l'appli au premier plan change */
+              fun setForeground(pkg: String) {
+                  if (pkg == fgPkg) return
+                  fgPkg = pkg
+                  handler.post { updateVisibility() }
               }
 
               private fun act(id: Int) {
@@ -4222,9 +4471,11 @@ jobs:
           package com.example.island
 
           import android.accessibilityservice.AccessibilityService
+          import android.content.Context
           import android.content.Intent
           import android.content.res.Configuration
           import android.view.accessibility.AccessibilityEvent
+          import android.view.inputmethod.InputMethodManager
 
           class IslandAccessibilityService : AccessibilityService() {
 
@@ -4264,7 +4515,26 @@ jobs:
                   controller?.apply()
               }
 
-              override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+                  if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+                  val pkg = event.packageName?.toString() ?: return
+                  val cls = event.className?.toString() ?: ""
+                  if (pkg == "com.android.systemui" || pkg == "android") return
+                  if (cls.startsWith("android.widget.") || cls.startsWith("android.inputmethodservice.")) return
+                  if (pkg == packageName && !cls.endsWith("MainActivity")) return
+                  if (isKeyboard(pkg)) return
+                  controller?.setForeground(pkg)
+              }
+
+              /** Les claviers ouvrent leur propre fenêtre : on ne les prend pas pour l'appli au premier plan */
+              private fun isKeyboard(pkg: String): Boolean {
+                  return try {
+                      val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                      imm.enabledInputMethodList.any { it.packageName == pkg }
+                  } catch (e: Exception) {
+                      false
+                  }
+              }
 
               override fun onInterrupt() {}
 
@@ -4447,7 +4717,7 @@ jobs:
               private lateinit var tabRow: LinearLayout
               private var tab = 0
               private val handler = Handler(Looper.getMainLooper())
-              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G", "📏 Jauges", "✨ Animations")
+              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G", "📏 Jauges", "✨ Animations", "🕳️ Masque")
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -4514,9 +4784,11 @@ jobs:
                   engine.start()
                   refreshViews()
                   if (tab == 4) showTab(4)
+                  if (tab == 9) setMaskEdit(true)
               }
 
               override fun onPause() {
+                  setMaskEdit(false)
                   engine.stop()
                   super.onPause()
               }
@@ -4551,6 +4823,106 @@ jobs:
               }
 
               /** Montre (ou cache) la zone tactile de la poignée sur l'écran pendant qu'on la règle */
+              /** Montre (ou cache) le masque en direct sur l'écran pendant que l'onglet Masque est ouvert */
+              private fun setMaskEdit(v: Boolean) {
+                  if (Store.maskEdit == v) return
+                  Store.maskEdit = v
+                  IslandAccessibilityService.instance?.reload()
+              }
+
+              private fun appLabel(pkg: String): String {
+                  return try {
+                      packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+                  } catch (e: Exception) {
+                      pkg
+                  }
+              }
+
+              private fun pickMaskApps() {
+                  val c = Store.cfg
+                  val pm = packageManager
+                  val q = Intent(Intent.ACTION_MAIN)
+                  q.addCategory(Intent.CATEGORY_LAUNCHER)
+                  val list = pm.queryIntentActivities(q, 0)
+                      .map { Pair(it.activityInfo.packageName, it.loadLabel(pm).toString()) }
+                      .distinctBy { it.first }
+                      .sortedBy { it.second.lowercase() }
+                  val sel = c.maskApps
+                  val checked = BooleanArray(list.size) { sel.contains(list[it].first) }
+                  AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                      .setTitle("Applis avec le masque")
+                      .setMultiChoiceItems(list.map { it.second }.toTypedArray(), checked) { _, which, on -> checked[which] = on }
+                      .setPositiveButton("OK") { _, _ ->
+                          val keep = ArrayList<String>()
+                          for (i in list.indices) if (checked[i]) keep.add(list[i].first)
+                          c.maskApps = keep
+                          commit()
+                          rebuild()
+                      }
+                      .setNegativeButton("Annuler", null)
+                      .show()
+              }
+
+              // ---------------------------------------------------------------- MASQUE (pixels morts)
+
+              private fun tabMask(): View {
+                  val c = Store.cfg
+                  val b = ui.vbox()
+                  val sw = resources.displayMetrics.widthPixels
+                  val sel = Store.maskSelIdx.coerceIn(0, c.maskN - 1)
+                  Store.maskSelIdx = sel
+
+                  b.addView(ui.section("Barre de masquage (pixels morts)"))
+                  b.addView(ui.hint("Tant que cet onglet est ouvert, le masque s'affiche sur ton écran à la place de la barre, avec un contour cyan et un point rouge sur le point que tu règles. Tout est en pixels réels : − et + avancent d'un pixel, et tu peux taper le chiffre exact."))
+                  b.addView(ui.toggle("Activer le masque", { c.maskOn }, { c.maskOn = it }))
+                  b.addView(ui.colorRow("Couleur du masque", { c.maskColor }, { c.maskColor = it }, false))
+
+                  b.addView(ui.section("Applis où le masque remplace la barre"))
+                  val apps = c.maskApps
+                  b.addView(ui.hint(if (apps.isEmpty()) "Aucune appli choisie." else apps.joinToString(", ") { appLabel(it) }))
+                  b.addView(ui.buttons(listOf("📱 Choisir les applis", "🗑️ Vider la liste")) { i ->
+                      if (i == 0) {
+                          pickMaskApps()
+                      } else {
+                          c.maskApps = emptyList()
+                          commit()
+                          rebuild()
+                      }
+                  })
+                  b.addView(ui.toggle("Aussi quand la barre est cachée (verrouillage, AOD, paysage)", { c.maskWhenHidden }, { c.maskWhenHidden = it }))
+
+                  b.addView(ui.section("Taille et position (pixels)"))
+                  b.addView(ui.slider("Largeur", 1, sw, { c.maskW }, { c.maskW = it }, " px"))
+                  b.addView(ui.slider("Hauteur", 1, 400, { c.maskH }, { c.maskH = it }, " px"))
+                  b.addView(ui.slider("Décalage horizontal (0 = centré)", -sw / 2, sw / 2, { c.maskX }, { c.maskX = it }, " px"))
+                  b.addView(ui.slider("Distance depuis le haut", 0, 300, { c.maskY }, { c.maskY = it }, " px"))
+
+                  b.addView(ui.section("Contour"))
+                  val ns = listOf(2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 25)
+                  b.addView(ui.chips("Nombre de points sur chaque bord (haut et bas)", ns.map { it.toString() },
+                      { val k = ns.indexOf(c.maskN); if (k < 0) 5 else k }, { c.maskN = ns[it] }) { rebuild() })
+                  b.addView(ui.chips(null, listOf("Angles droits", "Courbe lisse"), { if (c.maskSmooth) 1 else 0 }, { c.maskSmooth = it == 1 }) { rebuild() })
+                  if (!c.maskSmooth) {
+                      b.addView(ui.slider("Arrondi des angles", 0, 200, { c.maskRound }, { c.maskRound = it }, " px"))
+                  }
+
+                  b.addView(ui.section("Régler un point"))
+                  b.addView(ui.chips("Bord", listOf("⬆️ Haut", "⬇️ Bas"), { if (Store.maskSelTop) 0 else 1 }, { Store.maskSelTop = it == 0 }) { rebuild() })
+                  b.addView(ui.chips("Point (de gauche à droite)", (1..c.maskN).map { it.toString() }, { sel }, { Store.maskSelIdx = it }) { rebuild() })
+                  val top = Store.maskSelTop
+                  b.addView(ui.slider("Décalage horizontal du point", -300, 300,
+                      { c.maskPt(top, sel)[0] }, { c.setMaskPt(top, sel, it, c.maskPt(top, sel)[1]) }, " px"))
+                  b.addView(ui.slider("Décalage vertical du point", -140, 140,
+                      { c.maskPt(top, sel)[1] }, { c.setMaskPt(top, sel, c.maskPt(top, sel)[0], it) }, " px"))
+                  b.addView(ui.buttons(listOf("↔️ Miroir gauche → droite", "♻️ Remettre les points à zéro")) { i ->
+                      if (i == 0) c.mirrorMaskPts() else c.resetMaskPts()
+                      commit()
+                      rebuild()
+                  })
+                  b.addView(ui.hint("Le miroir recopie les points de la moitié gauche sur la moitié droite (décalage horizontal inversé), pour une forme symétrique."))
+                  return b
+              }
+
               private fun setSideEdit(v: Boolean) {
                   if (Store.sideEdit == v) return
                   Store.sideEdit = v
@@ -4559,6 +4931,7 @@ jobs:
 
               private fun showTab(i: Int) {
                   tab = i
+                  setMaskEdit(i == 9)
                   for (k in 0 until tabRow.childCount) ui.styleChip(tabRow.getChildAt(k) as TextView, k == i)
                   content.removeAllViews()
                   val v = when (i) {
@@ -4570,6 +4943,7 @@ jobs:
                       6 -> scroll(tabHistory())
                       7 -> scroll(tabGauges())
                       8 -> scroll(tabAnim())
+                      9 -> scroll(tabMask())
                       else -> scroll(tabOptions())
                   }
                   content.addView(v, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
@@ -5357,8 +5731,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 26
-                  versionName = "2.6.1"
+                  versionCode = 27
+                  versionName = "2.7.0"
               }
 
               compileOptions {
@@ -5444,7 +5818,7 @@ jobs:
               android:accessibilityFlags="flagDefault"
               android:canRetrieveWindowContent="false"
               android:description="@string/acc_desc"
-              android:notificationTimeout="500" />
+              android:notificationTimeout="100" />
           KOTLIN_EOF
           mkdir -p .
           cat > build.gradle.kts <<'KOTLIN_EOF'
