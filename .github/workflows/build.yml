@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.4.6 (${{ github.sha }})
+run-name: Build APK 2.5.0 (${{ github.sha }})
 
 on:
   push:
@@ -428,8 +428,9 @@ jobs:
                   Store.rev++
               }
 
+              /** Rectangle uniquement */
               var shape: Int
-                  get() = gi("shape", 2)
+                  get() = 0
                   set(v) {
                       p("shape", v)
                   }
@@ -662,6 +663,27 @@ jobs:
                       p("has", v)
                   }
 
+              /** Fondu transparent sur le bas de la barre */
+              var fadeOn: Boolean
+                  get() = gb("fo", true)
+                  set(v) {
+                      p("fo", v)
+                  }
+
+              /** Hauteur du fondu, en % de la hauteur de la barre */
+              var fadeH: Int
+                  get() = gi("fh", 55)
+                  set(v) {
+                      p("fh", v)
+                  }
+
+              /** Force du fondu : 100 = le bas devient totalement transparent */
+              var fadeAmt: Int
+                  get() = gi("fa", 85)
+                  set(v) {
+                      p("fa", v)
+                  }
+
               var fontScale: Int
                   get() = gi("fsc", 100)
                   set(v) {
@@ -768,14 +790,15 @@ jobs:
                       p("hland", v)
                   }
 
+              /** Clic sur la barre supprimé */
               var tapAction: Int
-                  get() = gi("tap", 0)
+                  get() = 0
                   set(v) {
                       p("tap", v)
                   }
 
               var longAction: Int
-                  get() = gi("lng", 0)
+                  get() = 0
                   set(v) {
                       p("lng", v)
                   }
@@ -846,8 +869,9 @@ jobs:
                       p("hdbl", v)
                   }
 
+              /** Poignée supprimée */
               var sideOn: Boolean
-                  get() = gb("son", true)
+                  get() = false
                   set(v) {
                       p("son", v)
                   }
@@ -939,8 +963,8 @@ jobs:
               }
 
               companion object {
-                  /** Réglages de Pierre-Jean (exportés depuis l'app) : utilisés à la première ouverture et au « Tout réinitialiser » */
-                  private const val DEFAULT_JSON = """{"mods":[{"id":"5609d974","kind":"TIME","zone":0,"left":true,"icon":"🕐","led":false,"ico":false,"txt":true,"hide":false,"b":true,"sx":0,"sy":0},{"id":"1c52dd44","kind":"DATE","zone":0,"left":true,"icon":"📅","led":false,"ico":false,"txt":true,"hide":false,"b":true,"sy":0},{"id":"faded531","kind":"WEATHER","zone":0,"left":true,"icon":"☀️","led":false,"ico":true,"txt":true,"hide":false,"b":true,"sy":0},{"id":"3243a870","kind":"NOTIF_ICONS","zone":0,"left":true,"icon":"🔔","led":false,"ico":true,"txt":false,"hide":true,"opt":4,"sy":0,"b":true},{"id":"6e261241","kind":"NETWORK","zone":3,"left":false,"icon":"📶","led":true,"ico":false,"txt":true,"hide":false,"aled":true,"ls":3,"lsz":7,"on":true,"b":true,"sy":0},{"id":"588b7fb9","kind":"CHARGE_WATTS","zone":3,"left":false,"icon":"⚡","led":true,"ico":false,"txt":true,"hide":true,"b":true,"lsz":7,"ls":3,"sy":0},{"id":"c5f5d289","kind":"CHARGE_TIME","zone":3,"left":false,"icon":"⏱️","led":false,"ico":false,"txt":true,"hide":true,"b":true,"sy":0},{"id":"fb4b73dd","kind":"BATTERY","zone":3,"left":false,"icon":"🔋","led":true,"ico":false,"txt":true,"hide":false,"ls":3,"lsz":7,"b":true,"sy":0}],"shape":0,"w":420,"h":33,"oy":0,"sp":10,"pe":5,"fsc":100,"hx":0,"hy":17,"hd":20,"cut":true,"htap":5,"hnot":false,"hast":0,"hgn":2,"hgc1":-16777216,"hgc2":-1841453,"hgs":true,"hga":90,"hgr":true,"haw":1,"hag":2,"hagl":0,"har":true,"has":5000,"hcy":false,"hcm":20000,"hcs":false,"pal":{"sig0":-65536,"sig1":-65536,"sig4":-16711936,"sig2":-28672,"sig3":-4096,"wifi0":-65536,"wifi1":-65536,"batt_crit":-65536,"chw_low":-65536,"chw_mid":-28672,"chw_high":-16515328,"batt_low":-28672,"halo_low":-65536,"wifi4":-16711936,"batt_plug":-16746497,"halo_charge":-16776986,"wifi3":-4096,"batt_mid":-4096,"wifi2":-28672,"bt_warm":-28672,"batt_hi":-16711936,"cs_chg":-28672,"cs_fast":-458501},"sy":585,"stw":15,"scol":-1426063361,"st":7,"stap":0,"sin":1,"sl":90,"fill":-16777216,"grad":false,"son":false,"hgc0":-65536,"hac":-65536}"""
+                  /** Réglages de Pierre-Jean (exportés depuis l'app, v2.5.0) : utilisés à la première ouverture et au « Tout réinitialiser » */
+                  private const val DEFAULT_JSON = """{"mods":[{"id":"20e4fa9a","kind":"RINGER","zone":0,"left":true,"icon":"🔔","led":true,"ico":false,"txt":false,"hide":false,"aico":false,"ls":1,"lsz":5},{"id":"5609d974","kind":"TIME","zone":0,"left":true,"icon":"🕐","led":false,"ico":false,"txt":true,"hide":false,"b":false,"sx":0,"sy":0},{"id":"1c52dd44","kind":"DATE","zone":0,"left":true,"icon":"📅","led":false,"ico":false,"txt":true,"hide":false,"b":false,"sy":0},{"id":"faded531","kind":"WEATHER","zone":0,"left":true,"icon":"☀️","led":false,"ico":false,"txt":true,"hide":false,"b":false,"sy":0},{"id":"3243a870","kind":"NOTIF_ICONS","zone":0,"left":true,"icon":"🔔","led":false,"ico":true,"txt":false,"hide":true,"opt":4,"sy":0,"b":true,"ls":0},{"id":"d9ce0342","kind":"WIFI_STATE","zone":3,"left":false,"icon":"📶","led":true,"ico":false,"txt":true,"hide":true,"aled":true,"lc":-1667297,"ton":"Wifi","ls":3,"lsz":5},{"id":"3cb4eb5b","kind":"SIGNAL","zone":3,"left":false,"icon":"📡","led":true,"ico":false,"txt":true,"hide":false,"opt":3,"ls":3,"lsz":5},{"id":"588b7fb9","kind":"CHARGE_WATTS","zone":3,"left":false,"icon":"⚡","led":true,"ico":false,"txt":true,"hide":true,"b":false,"lsz":5,"ls":3,"sy":0,"opt":1},{"id":"c5f5d289","kind":"CHARGE_TIME","zone":3,"left":false,"icon":"⏱️","led":false,"ico":false,"txt":true,"hide":true,"b":false,"sy":0,"ls":0},{"id":"fb4b73dd","kind":"BATTERY","zone":3,"left":false,"icon":"🔋","led":true,"ico":false,"txt":true,"hide":false,"ls":3,"lsz":5,"b":false,"sy":0,"aled":true},{"id":"0106aa99","kind":"TORCH","zone":2,"left":false,"icon":"🔦","led":true,"ico":true,"txt":false,"hide":true}],"shape":0,"w":420,"h":33,"oy":0,"sp":10,"pe":10,"fsc":100,"hx":0,"hy":17,"hd":20,"cut":false,"htap":5,"hnot":false,"hast":0,"hgn":2,"hgc1":-16777216,"hgc2":-1841453,"hgs":true,"hga":90,"hgr":true,"haw":1,"hag":2,"hagl":1,"har":true,"has":5000,"hcy":true,"hcm":20000,"hcs":false,"pal":{"sig0":-65536,"sig1":-65536,"sig4":-16711936,"sig2":-28672,"sig3":-4096,"wifi0":-65536,"wifi1":-65536,"batt_crit":-65536,"chw_low":-65536,"chw_mid":-28672,"chw_high":-16515328,"batt_low":-28672,"halo_low":-65536,"wifi4":-16711936,"batt_plug":-16257793,"halo_charge":-16776986,"wifi3":-4096,"batt_mid":-4096,"wifi2":-28672,"bt_warm":-28672,"batt_hi":-16711936,"cs_chg":-28672,"cs_fast":-458501,"wifi_idle":-1},"sy":585,"stw":15,"scol":-1426063361,"st":7,"stap":0,"sin":1,"sl":90,"fill":-16777216,"grad":false,"son":false,"hgc0":-65536,"hac":-65536,"ly":1,"bw":0,"hlock":false,"tap":0,"s5g":true,"d5g":1}"""
 
                   fun default(): Config = Config(JSONObject(DEFAULT_JSON))
               }
@@ -2170,6 +2194,7 @@ jobs:
           import android.content.Context
           import android.graphics.BlurMaskFilter
           import android.graphics.Canvas
+          import android.graphics.Color
           import android.graphics.LinearGradient
           import android.graphics.Paint
           import android.graphics.Path
@@ -2193,9 +2218,13 @@ jobs:
               private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                   xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
               }
+              private val fadePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
+              }
               private val tp = Paint(Paint.ANTI_ALIAS_FLAG)
               private val lp = Paint(Paint.ANTI_ALIAS_FLAG)
               private val rect = RectF()
+              private val ledPath = Path()
 
               private var path = Path()
               private var pathKey = ""
@@ -2216,7 +2245,7 @@ jobs:
                       if (!mod.enabled) continue
                       val v = engine.compute(mod)
                       m[mod.id] = v
-                      if (mod.showLed && (mod.ledBlink || v.blink)) needFast = true
+                      if (mod.showLed && (mod.ledBlink || v.blink || mod.ledStyle == 12)) needFast = true
                   }
                   vals = m
                   engine.fast = needFast
@@ -2273,10 +2302,17 @@ jobs:
 
               private fun spacerW(m: Mod): Float = arrayOf(6f, 14f, 28f, 60f)[m.opt.coerceIn(0, 3)]
 
-              private fun ledW(m: Mod, s: Float): Float {
-                  val ls = m.ledSize * d * s
-                  return if (m.ledStyle == 2) ls * 1.8f else ls
+              /** Largeur de la LED selon son style, en multiple de sa taille */
+              private fun ledWf(style: Int): Float = when (style) {
+                  2 -> 1.8f
+                  4, 7 -> 0.5f
+                  9 -> 1.5f
+                  10 -> 2.2f
+                  11 -> 1.25f
+                  else -> 1f
               }
+
+              private fun ledW(m: Mod, s: Float): Float = m.ledSize * d * s * ledWf(m.ledStyle)
 
               private fun setText(m: Mod, s: Float, icon: Boolean) {
                   tp.typeface = face(m)
@@ -2372,19 +2408,18 @@ jobs:
                   val ls = m.ledSize * d * s
                   lp.color = color
                   lp.maskFilter = null
+                  lp.style = Paint.Style.FILL
                   when (m.ledStyle) {
-                      1 -> {
+                      1 -> { // anneau
                           lp.style = Paint.Style.STROKE
                           lp.strokeWidth = ls * 0.24f
                           canvas.drawCircle(x + ls / 2f, cy, ls / 2f - ls * 0.12f, lp)
                       }
-                      2 -> {
-                          lp.style = Paint.Style.FILL
+                      2 -> { // barre horizontale
                           rect.set(x, cy - ls * 0.3f, x + ls * 1.8f, cy + ls * 0.3f)
                           canvas.drawRoundRect(rect, ls * 0.3f, ls * 0.3f, lp)
                       }
-                      3 -> {
-                          lp.style = Paint.Style.FILL
+                      3 -> { // point lumineux
                           lp.maskFilter = BlurMaskFilter(ls * 0.7f, BlurMaskFilter.Blur.NORMAL)
                           lp.alpha = 170
                           canvas.drawCircle(x + ls / 2f, cy, ls * 0.8f, lp)
@@ -2392,11 +2427,93 @@ jobs:
                           lp.color = color
                           canvas.drawCircle(x + ls / 2f, cy, ls / 2f, lp)
                       }
-                      else -> {
+                      4 -> { // barre verticale
+                          rect.set(x, cy - ls * 1.2f, x + ls * 0.5f, cy + ls * 1.2f)
+                          canvas.drawRoundRect(rect, ls * 0.25f, ls * 0.25f, lp)
+                      }
+                      5 -> { // carré arrondi
+                          rect.set(x, cy - ls / 2f, x + ls, cy + ls / 2f)
+                          canvas.drawRoundRect(rect, ls * 0.22f, ls * 0.22f, lp)
+                      }
+                      6 -> { // losange
+                          ledPath.reset()
+                          ledPath.moveTo(x + ls / 2f, cy - ls * 0.65f)
+                          ledPath.lineTo(x + ls, cy)
+                          ledPath.lineTo(x + ls / 2f, cy + ls * 0.65f)
+                          ledPath.lineTo(x, cy)
+                          ledPath.close()
+                          canvas.drawPath(ledPath, lp)
+                      }
+                      7 -> { // barre verticale lumineuse
+                          lp.maskFilter = BlurMaskFilter(ls * 0.6f, BlurMaskFilter.Blur.NORMAL)
+                          lp.alpha = 170
+                          rect.set(x - ls * 0.15f, cy - ls * 1.35f, x + ls * 0.65f, cy + ls * 1.35f)
+                          canvas.drawRoundRect(rect, ls * 0.3f, ls * 0.3f, lp)
+                          lp.maskFilter = null
+                          lp.color = color
+                          rect.set(x, cy - ls * 1.2f, x + ls * 0.5f, cy + ls * 1.2f)
+                          canvas.drawRoundRect(rect, ls * 0.25f, ls * 0.25f, lp)
+                      }
+                      8 -> { // cible : anneau + point
+                          lp.style = Paint.Style.STROKE
+                          lp.strokeWidth = ls * 0.18f
+                          canvas.drawCircle(x + ls / 2f, cy, ls / 2f - ls * 0.09f, lp)
                           lp.style = Paint.Style.FILL
+                          canvas.drawCircle(x + ls / 2f, cy, ls * 0.19f, lp)
+                      }
+                      9 -> { // trois barres montantes
+                          val bw = ls * 0.38f
+                          val base = cy + ls
+                          for (i in 0..2) {
+                              val bh = ls * (0.8f + 0.6f * i)
+                              val bx = x + i * (bw + ls * 0.18f)
+                              rect.set(bx, base - bh, bx + bw, base)
+                              canvas.drawRoundRect(rect, bw * 0.3f, bw * 0.3f, lp)
+                          }
+                      }
+                      10 -> { // trait fin
+                          rect.set(x, cy - ls * 0.12f, x + ls * 2.2f, cy + ls * 0.12f)
+                          canvas.drawRoundRect(rect, ls * 0.12f, ls * 0.12f, lp)
+                      }
+                      11 -> { // étoile à 4 branches
+                          val cx = x + ls * 0.625f
+                          val ro = ls * 0.65f
+                          val ri = ls * 0.2f
+                          ledPath.reset()
+                          for (i in 0 until 8) {
+                              val ang = Math.PI / 4.0 * i - Math.PI / 2.0
+                              val r = if (i % 2 == 0) ro else ri
+                              val px = cx + (Math.cos(ang) * r).toFloat()
+                              val py = cy + (Math.sin(ang) * r).toFloat()
+                              if (i == 0) ledPath.moveTo(px, py) else ledPath.lineTo(px, py)
+                          }
+                          ledPath.close()
+                          canvas.drawPath(ledPath, lp)
+                      }
+                      12 -> { // point qui respire
+                          val k = 0.5f + 0.5f * Math.sin(System.currentTimeMillis() / 330.0).toFloat()
+                          lp.maskFilter = BlurMaskFilter(ls * 0.6f, BlurMaskFilter.Blur.NORMAL)
+                          lp.alpha = (60 + 120 * k).toInt()
+                          canvas.drawCircle(x + ls / 2f, cy, ls * (0.65f + 0.2f * k), lp)
+                          lp.maskFilter = null
+                          lp.color = color
+                          lp.alpha = (110 + 145 * k).toInt()
+                          canvas.drawCircle(x + ls / 2f, cy, ls / 2f, lp)
+                      }
+                      13 -> { // triangle
+                          ledPath.reset()
+                          ledPath.moveTo(x + ls / 2f, cy - ls * 0.58f)
+                          ledPath.lineTo(x + ls, cy + ls * 0.46f)
+                          ledPath.lineTo(x, cy + ls * 0.46f)
+                          ledPath.close()
+                          canvas.drawPath(ledPath, lp)
+                      }
+                      else -> { // point
                           canvas.drawCircle(x + ls / 2f, cy, ls / 2f, lp)
                       }
                   }
+                  lp.alpha = 255
+                  lp.maskFilter = null
               }
 
               private fun visibleMods(c: Config, zone: Int): List<Mod> {
@@ -2477,6 +2594,14 @@ jobs:
                       strokePaint.color = c.border
                       strokePaint.strokeWidth = c.borderW * d
                       canvas.drawPath(path, strokePaint)
+                  }
+
+                  // fondu (fade) transparent sur le bas de la barre : il n'efface que le fond, pas les infos
+                  if (c.fadeOn && c.fadeH > 0 && c.fadeAmt > 0) {
+                      val fh = (h * c.fadeH / 100f).coerceIn(1f, h)
+                      val a = (255 * c.fadeAmt / 100f).toInt().coerceIn(0, 255)
+                      fadePaint.shader = LinearGradient(0f, h - fh, 0f, h, 0x00000000, Color.argb(a, 0, 0, 0), Shader.TileMode.CLAMP)
+                      canvas.drawRect(0f, h - fh, w, h, fadePaint)
                   }
 
                   // infos
@@ -3808,7 +3933,7 @@ jobs:
                   b.addView(et)
 
                   b.addView(ui.section("LED"))
-                  b.addView(ui.chips("Style", listOf("● Point", "○ Anneau", "▬ Barre", "✺ Lumineuse"), { m.ledStyle }, { m.ledStyle = it }))
+                  b.addView(ui.chips("Style", listOf("● Point", "○ Anneau", "▬ Barre", "✺ Lumineuse", "▮ Barre verticale", "■ Carré", "◆ Losange", "▮ Barre verticale lumineuse", "◉ Cible", "▂▄▆ Trois barres", "— Trait fin", "✦ Étoile", "◍ Point qui respire", "▲ Triangle"), { m.ledStyle }, { m.ledStyle = it }))
                   b.addView(ui.slider("Taille", 3, 24, { m.ledSize }, { m.ledSize = it }, " dp"))
                   b.addView(ui.toggle(
                       if (m.kind == Kind.NETWORK || m.kind == Kind.SIGNAL) "Couleur selon la qualité du signal (désactive pour une couleur fixe)" else "Couleur automatique selon l'état",
@@ -3887,7 +4012,7 @@ jobs:
               private lateinit var tabRow: LinearLayout
               private var tab = 0
               private val handler = Handler(Looper.getMainLooper())
-              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "↔️ Côté", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G")
+              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G")
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -3951,14 +4076,12 @@ jobs:
 
               override fun onResume() {
                   super.onResume()
-                  setSideEdit(tab == 4)
                   engine.start()
                   refreshViews()
-                  if (tab == 5) showTab(5)
+                  if (tab == 4) showTab(4)
               }
 
               override fun onPause() {
-                  setSideEdit(false)
                   engine.stop()
                   super.onPause()
               }
@@ -3966,7 +4089,7 @@ jobs:
               override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults)
                   Weather.reset()
-                  if (tab == 5) showTab(5)
+                  if (tab == 4) showTab(4)
               }
 
               private fun granted(p: String): Boolean = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
@@ -4001,7 +4124,6 @@ jobs:
 
               private fun showTab(i: Int) {
                   tab = i
-                  setSideEdit(i == 4)
                   for (k in 0 until tabRow.childCount) ui.styleChip(tabRow.getChildAt(k) as TextView, k == i)
                   content.removeAllViews()
                   val v = when (i) {
@@ -4009,9 +4131,8 @@ jobs:
                       1 -> scroll(tabStyle())
                       2 -> scroll(tabHole())
                       3 -> tabInfos()
-                      4 -> scroll(tabSide())
-                      6 -> scroll(tabColors())
-                      7 -> scroll(tabHistory())
+                      5 -> scroll(tabColors())
+                      6 -> scroll(tabHistory())
                       else -> scroll(tabOptions())
                   }
                   content.addView(v, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
@@ -4140,69 +4261,15 @@ jobs:
 
               // ---------------------------------------------------------------- FORME
 
-              private fun applyPreset(i: Int) {
-                  val c = Store.cfg
-                  when (i) {
-                      0 -> { c.shape = 0; c.width = 200; c.height = 30; c.offY = 0 }
-                      1 -> { c.shape = 2; c.width = 240; c.height = 34; c.offY = 6 }
-                      2 -> { c.shape = 3; c.width = 200; c.height = 40; c.offY = 4 }
-                      3 -> { c.shape = 4; c.width = 220; c.height = 36; c.flare = 14; c.radius = 18; c.offY = 0 }
-                      4 -> { c.shape = 5; c.width = 260; c.height = 34; c.waveAmp = 4; c.waveCount = 4; c.waveEdges = 1; c.waveAnim = true; c.radius = 17; c.offY = 5 }
-                      5 -> { c.shape = 6; c.width = 240; c.height = 38; c.rough = 45; c.lobes = 12; c.seed = Random().nextInt(100000); c.offY = 4 }
-                      else -> { c.shape = 7; c.width = 280; c.height = 34; c.blobs = 3; c.rough = 30; c.blobGap = 6; c.seed = Random().nextInt(100000); c.offY = 4 }
-                  }
-                  commit()
-                  rebuild()
-              }
-
               private fun tabShape(): View {
                   val c = Store.cfg
                   val b = ui.vbox()
-                  b.addView(ui.section("Styles tout prêts"))
-                  b.addView(ui.buttons(listOf("▭ Rectangle", "💊 Pilule flottante", "⬭ Ovale", "🏝️ Évasée", "🌊 Vagues", "🎲 Organique", "🧩 Archipel")) { applyPreset(it) })
-
-                  b.addView(ui.section("Forme"))
-                  b.addView(ui.chips(null, listOf("▭ Rectangle", "▢ Arrondi", "💊 Pilule", "⬭ Ovale", "🏝️ Évasée", "🌊 Vagues", "🎲 Aléatoire", "🧩 Multi"), { c.shape }, { c.shape = it }) { rebuild() })
-
                   b.addView(ui.section("Taille et position"))
                   b.addView(ui.slider("Largeur", 60, 420, { c.width }, { c.width = it }, " dp"))
                   b.addView(ui.slider("Hauteur", 14, 120, { c.height }, { c.height = it }, " dp"))
                   b.addView(ui.slider("Décalage horizontal", -250, 250, { c.offX }, { c.offX = it }, " dp"))
                   b.addView(ui.slider("Décollée du haut", 0, 80, { c.offY }, { c.offY = it }, " dp"))
 
-                  when (c.shape) {
-                      1 -> {
-                          b.addView(ui.section("Arrondi"))
-                          b.addView(ui.slider("Rayon des coins", 0, 60, { c.radius }, { c.radius = it }, " dp"))
-                      }
-                      4 -> {
-                          b.addView(ui.section("Évasement"))
-                          b.addView(ui.slider("Taille des évasements", 0, 40, { c.flare }, { c.flare = it }, " dp"))
-                          b.addView(ui.slider("Arrondi du bas", 0, 60, { c.radius }, { c.radius = it }, " dp"))
-                      }
-                      5 -> {
-                          b.addView(ui.section("Vagues"))
-                          b.addView(ui.slider("Hauteur des vagues", 1, 20, { c.waveAmp }, { c.waveAmp = it }, " dp"))
-                          b.addView(ui.slider("Nombre de vagues", 1, 15, { c.waveCount }, { c.waveCount = it }))
-                          b.addView(ui.slider("Arrondi des extrémités", 0, 60, { c.radius }, { c.radius = it }, " dp"))
-                          b.addView(ui.chips("Bords ondulés", listOf("Bas seulement", "Haut et bas (parallèles)", "Haut et bas (opposés)"), { c.waveEdges }, { c.waveEdges = it }))
-                          b.addView(ui.toggle("Vagues animées 🌊", { c.waveAnim }, { c.waveAnim = it }))
-                      }
-                      6 -> {
-                          b.addView(ui.section("Forme aléatoire"))
-                          b.addView(ui.button("🎲 Nouvelle forme") { c.seed = Random().nextInt(100000); commit() })
-                          b.addView(ui.slider("Irrégularité", 0, 100, { c.rough }, { c.rough = it }, " %"))
-                          b.addView(ui.slider("Nombre de points", 4, 24, { c.lobes }, { c.lobes = it }))
-                      }
-                      7 -> {
-                          b.addView(ui.section("Plusieurs formes aléatoires"))
-                          b.addView(ui.button("🎲 Nouvelles formes") { c.seed = Random().nextInt(100000); commit() })
-                          b.addView(ui.slider("Nombre de formes", 2, 6, { c.blobs }, { c.blobs = it }))
-                          b.addView(ui.slider("Espace entre les formes", 0, 30, { c.blobGap }, { c.blobGap = it }, " dp"))
-                          b.addView(ui.slider("Irrégularité", 0, 100, { c.rough }, { c.rough = it }, " %"))
-                          b.addView(ui.slider("Nombre de points", 4, 24, { c.lobes }, { c.lobes = it }))
-                      }
-                  }
                   return b
               }
 
@@ -4217,6 +4284,13 @@ jobs:
                   if (c.grad) {
                       b.addView(ui.colorRow("Deuxième couleur", { c.fill2 }, { c.fill2 = it }))
                       b.addView(ui.slider("Angle du dégradé", 0, 360, { c.gradAngle }, { c.gradAngle = it }, "°"))
+                  }
+                  b.addView(ui.section("Fondu du bas"))
+                  b.addView(ui.toggle("Fondu transparent sur le bas de la barre", { c.fadeOn }, { c.fadeOn = it }) { rebuild() })
+                  if (c.fadeOn) {
+                      b.addView(ui.slider("Hauteur du fondu", 5, 100, { c.fadeH }, { c.fadeH = it }, " %"))
+                      b.addView(ui.slider("Force du fondu", 5, 100, { c.fadeAmt }, { c.fadeAmt = it }, " %"))
+                      b.addView(ui.hint("Le bas de la barre devient peu à peu transparent. Il n'affecte que le fond : le texte et les LED restent nets."))
                   }
                   b.addView(ui.section("Contour"))
                   b.addView(ui.colorRow("Couleur du contour", { c.border }, { c.border = it }))
@@ -4484,11 +4558,6 @@ jobs:
                   b.addView(ui.toggle("Masquer en mode paysage", { c.hideLand }, { c.hideLand = it }))
                   b.addView(ui.hint("Si ton téléphone ne signale pas l'AOD correctement, la barre reste simplement affichée."))
 
-                  val acts = Actions.names
-                  b.addView(ui.section("Toucher la barre"))
-                  b.addView(ui.chips("Appui court", acts, { c.tapAction }, { c.tapAction = it }))
-                  b.addView(ui.chips("Appui long", acts, { c.longAction }, { c.longAction = it }))
-
                   b.addView(ui.section("Son"))
                   b.addView(ui.toggle("Jouer un son quand la vraie 5G se connecte", { c.sound5g }, { c.sound5g = it }))
                   b.addView(ui.hint("Le son est celui de tes notifications (il suit leur volume et le mode silencieux). Il ne se joue qu'au passage de la 4G à la 5G, pas à chaque vérification, et pas plus d'une fois toutes les 20 secondes. Il ne fonctionne que si la barre est affichée."))
@@ -4510,7 +4579,7 @@ jobs:
                                   Store.cfg = cfg
                                   Store.rev++
                                   commit()
-                                  showTab(5)
+                                  showTab(4)
                                   toast("Config importée ✔")
                               } catch (e: Exception) {
                                   toast("Le presse-papiers ne contient pas une config valide")
@@ -4783,8 +4852,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 23
-                  versionName = "2.4.6"
+                  versionCode = 24
+                  versionName = "2.5.0"
               }
 
               compileOptions {
