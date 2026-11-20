@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.6.0 (${{ github.sha }})
+run-name: Build APK 2.6.1 (${{ github.sha }})
 
 on:
   push:
@@ -700,6 +700,34 @@ jobs:
                   set(v) {
                       p("apw", v)
                   }
+
+              /** Largeur du balayage lumineux, en % de la largeur de la barre */
+              var animWidth: Int
+                  get() = gi("agw", 50)
+                  set(v) {
+                      p("agw", v)
+                  }
+
+              /** Nombre de passages du balayage */
+              var animRep: Int
+                  get() = gi("arep", 1)
+                  set(v) {
+                      p("arep", v)
+                  }
+
+              /** 0 = automatique selon l'événement, 1 = toujours de gauche à droite, 2 = toujours de droite à gauche */
+              var animDirMode: Int
+                  get() = gi("adir", 0)
+                  set(v) {
+                      p("adir", v)
+                  }
+
+              /** Couleur de l'animation d'un événement (celle d'origine tant qu'on n'y touche pas) */
+              fun animColor(k: String, def: Int): Int = j.optInt("ac_" + k, def)
+
+              fun setAnimColor(k: String, v: Int) {
+                  p("ac_" + k, v)
+              }
 
               fun animFlag(k: String): Boolean = j.optBoolean("af_" + k, true)
 
@@ -2461,9 +2489,18 @@ jobs:
               private fun addAnim(key: String, color: Int, kind: Int, dir: Int) {
                   val c = Store.cfg
                   if (!c.animOn || !c.animFlag(key)) return
-                  val k = if (kind == 0) c.animStyle else kind
-                  anims.add(Anim(System.currentTimeMillis(), color, k, dir, c.animDur.toLong()))
+                  anims.add(makeAnim(c, key, color, kind, dir, System.currentTimeMillis()))
                   while (anims.size > 6) anims.removeAt(0)
+              }
+
+              private fun makeAnim(c: Config, key: String, color: Int, kind: Int, dir: Int, t0: Long): Anim {
+                  val k = if (kind == 0) c.animStyle else kind
+                  val dd = when (c.animDirMode) {
+                      1 -> 1
+                      2 -> -1
+                      else -> dir
+                  }
+                  return Anim(t0, c.animColor(key, color), k, dd, c.animDur.toLong())
               }
 
               /** Compare l'état du téléphone à celui d'avant et lance l'animation qui correspond */
@@ -2490,17 +2527,26 @@ jobs:
                   if (p.ringer != now.ringer) addAnim("mode", Pal.YELLOW, 0, 1)
               }
 
-              /** Joue quelques animations d'exemple (bouton « Tester ») */
-              fun playTest() {
+              /** Joue une animation d'exemple (bouton « Tester ») : celle d'un événement, ou toutes à la suite si key est vide */
+              fun playTest(key: String?) {
                   val c = Store.cfg
                   val t = System.currentTimeMillis()
-                  val dur = c.animDur.toLong()
-                  val st = c.animStyle
+                  val dur = c.animDur.toLong() * maxOf(1, c.animRep)
                   anims.clear()
-                  anims.add(Anim(t, Pal.GREEN, st, 1, dur))
-                  anims.add(Anim(t + dur, Pal.ORANGE, st, -1, dur))
-                  anims.add(Anim(t + dur * 2, Pal.CYAN, 3, 1, dur))
-                  anims.add(Anim(t + dur * 3, Pal.PINK, st, 1, dur))
+                  val all = listOf(
+                      Triple("plug", tc("batt_plug", Pal.GREEN), 1), Triple("unplug", Pal.ORANGE, -1),
+                      Triple("full", tc("cs_full", Pal.CYAN), 1), Triple("low", Pal.RED, 1),
+                      Triple("net", Pal.PURPLE, 1), Triple("wifi", Pal.GREEN, 1),
+                      Triple("notif", tc("notif", Pal.PINK), 1), Triple("mode", Pal.ORANGE, 1)
+                  )
+                  var n = 0L
+                  for (e in all) {
+                      if (key != null && key != e.first) continue
+                      val kind = if (e.first == "full" || e.first == "low") 3 else 0
+                      anims.add(makeAnim(c, e.first, e.second, kind, e.third, t + n * dur))
+                      n++
+                      if (key == null && n >= 4) break
+                  }
                   invalidate()
               }
 
@@ -2508,16 +2554,19 @@ jobs:
                   val now = System.currentTimeMillis()
                   var k = 0
                   while (k < anims.size) {
-                      if (now - anims[k].t0 > anims[k].dur) anims.removeAt(k) else k++
+                      if (now - anims[k].t0 > anims[k].dur * maxOf(1, c.animRep)) anims.removeAt(k) else k++
                   }
                   val pw = c.animPower / 100f
+                  val rep = maxOf(1, c.animRep)
                   for (a in anims) {
-                      val p = ((now - a.t0).toFloat() / a.dur).coerceIn(0f, 1f)
+                      val p0 = ((now - a.t0).toFloat() / (a.dur * rep)).coerceIn(0f, 1f)
+                      val q = p0 * rep
+                      val p = if (p0 >= 1f) 1f else q - Math.floor(q.toDouble()).toFloat()
                       val env = Math.sin(Math.PI * p).toFloat()
                       val rgb = a.color and 0x00FFFFFF
                       if (a.kind == 0 || a.kind == 2) {
                           val e = p * p * (3f - 2f * p)
-                          val bw = w * 0.5f
+                          val bw = w * c.animWidth / 100f
                           val cx = if (a.dir >= 0) -bw / 2f + (w + bw) * e else w + bw / 2f - (w + bw) * e
                           val al = (255 * pw * 0.9f * env).toInt().coerceIn(0, 255)
                           animPaint.shader = LinearGradient(cx - bw / 2f, 0f, cx + bw / 2f, 0f, intArrayOf(rgb, rgb or (al shl 24), rgb), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
@@ -2531,7 +2580,7 @@ jobs:
                       }
                       if (a.kind == 3) {
                           val e = Math.abs(Math.sin(2.0 * Math.PI * p)).toFloat()
-                          val al = (255 * pw * 0.6f * e * (1f - p * 0.5f)).toInt().coerceIn(0, 255)
+                          val al = (255 * pw * 0.6f * e * (1f - p0 * 0.5f)).toInt().coerceIn(0, 255)
                           animPaint.shader = null
                           animPaint.color = rgb or (al shl 24)
                           canvas.drawRect(0f, 0f, w, h, animPaint)
@@ -3976,6 +4025,10 @@ jobs:
               }
 
               /** Relit tous les réglages et met les fenêtres à jour immédiatement */
+              fun playTest(key: String?) {
+                  bar.playTest(key)
+              }
+
               fun apply() {
                   if (!added) return
                   val c = Store.cfg
@@ -4195,6 +4248,10 @@ jobs:
               /** Appelé par l'appli de réglage après chaque modification */
               fun reload() {
                   controller?.apply()
+              }
+
+              fun playTest(key: String?) {
+                  controller?.playTest(key)
               }
 
               fun detect(cb: (IntArray?) -> Unit) {
@@ -4812,32 +4869,42 @@ jobs:
 
               // ---------------------------------------------------------------- ANIMATIONS
 
+              private fun playAnim(key: String?) {
+                  bar.playTest(key)
+                  IslandAccessibilityService.instance?.playTest(key)
+              }
+
               private fun tabAnim(): View {
                   val c = Store.cfg
                   val b = ui.vbox()
                   b.addView(ui.section("Animations"))
                   b.addView(ui.toggle("Activer les animations", { c.animOn }, { c.animOn = it }))
                   b.addView(ui.hint("Un effet lumineux traverse la barre quand il se passe quelque chose sur le téléphone."))
-                  b.addView(ui.section("Quand jouer une animation"))
+                  b.addView(ui.button("▶ Tout tester (aperçu + vraie barre)") { playAnim(null) })
+                  b.addView(ui.section("Chaque événement : activer, couleur, essai"))
                   val evs = listOf(
-                      "plug" to "🔌 Je branche le chargeur",
-                      "unplug" to "🔋 Je débranche le chargeur",
-                      "full" to "✅ Batterie pleine (100 %)",
-                      "low" to "🪫 Batterie faible (15 %)",
-                      "net" to "📡 Le réseau change (4G → 5G…)",
-                      "wifi" to "📶 Wi‑Fi connecté ou perdu",
-                      "notif" to "🔔 Nouvelle notification",
-                      "mode" to "✈️ Avion, Ne pas déranger, Sonnerie"
+                      Triple("plug", "🔌 Je branche le chargeur", tc("batt_plug", Pal.GREEN)),
+                      Triple("unplug", "🔋 Je débranche le chargeur", Pal.ORANGE),
+                      Triple("full", "✅ Batterie pleine (100 %)", tc("cs_full", Pal.CYAN)),
+                      Triple("low", "🪫 Batterie faible (15 %)", Pal.RED),
+                      Triple("net", "📡 Le réseau change (4G → 5G…)", Pal.PURPLE),
+                      Triple("wifi", "📶 Wi‑Fi connecté ou perdu", Pal.GREEN),
+                      Triple("notif", "🔔 Nouvelle notification", tc("notif", Pal.PINK)),
+                      Triple("mode", "✈️ Avion, Ne pas déranger, Sonnerie", Pal.ORANGE)
                   )
                   for (e in evs) {
                       b.addView(ui.toggle(e.second, { c.animFlag(e.first) }, { c.setAnimFlag(e.first, it) }))
+                      b.addView(ui.colorRow("Couleur", { c.animColor(e.first, e.third) }, { c.setAnimColor(e.first, it) }, false))
+                      b.addView(ui.button("▶ Essayer celle-ci") { playAnim(e.first) })
                   }
-                  b.addView(ui.section("Style"))
+                  b.addView(ui.section("Style du balayage"))
                   b.addView(ui.chips("Effet", listOf("➡️ Balayage lumineux", "💥 Flash", "✨ Balayage + flash"), { c.animStyle }, { c.animStyle = it }))
-                  b.addView(ui.slider("Durée", 400, 3000, { c.animDur }, { c.animDur = it }, " ms"))
+                  b.addView(ui.chips("Sens du balayage", listOf("🔄 Automatique", "➡️ Toujours vers la droite", "⬅️ Toujours vers la gauche"), { c.animDirMode }, { c.animDirMode = it }))
+                  b.addView(ui.slider("Largeur du balayage", 10, 100, { c.animWidth }, { c.animWidth = it }, " %"))
+                  b.addView(ui.slider("Nombre de passages", 1, 4, { c.animRep }, { c.animRep = it }))
+                  b.addView(ui.slider("Durée d'un passage", 400, 3000, { c.animDur }, { c.animDur = it }, " ms"))
                   b.addView(ui.slider("Intensité", 10, 100, { c.animPower }, { c.animPower = it }, " %"))
-                  b.addView(ui.hint("Le branchement balaie de gauche à droite, le débranchement de droite à gauche. Batterie pleine et batterie faible font des pulsations."))
-                  b.addView(ui.button("▶ Tester les animations") { bar.playTest() })
+                  b.addView(ui.hint("Par défaut, le branchement balaie vers la droite et le débranchement vers la gauche. Batterie pleine et batterie faible font des pulsations. Le bouton « Essayer » joue l'animation sur l'aperçu et sur la vraie barre."))
                   return b
               }
 
@@ -5290,8 +5357,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 25
-                  versionName = "2.6.0"
+                  versionCode = 26
+                  versionName = "2.6.1"
               }
 
               compileOptions {
