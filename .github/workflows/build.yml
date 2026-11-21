@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.7.0 (${{ github.sha }})
+run-name: Build APK 2.8.0 (${{ github.sha }})
 
 on:
   push:
@@ -1117,6 +1117,80 @@ jobs:
                   p("mkapps", a)
               }
 
+              /** ---- Bordure du masque ---- */
+              var maskBorderOn: Boolean
+                  get() = gb("mkbo", false)
+                  set(v) {
+                      p("mkbo", v)
+                  }
+
+              var maskBorderW: Int
+                  get() = gi("mkbw", 4)
+                  set(v) {
+                      p("mkbw", v)
+                  }
+
+              /** Nombre de couleurs de la bordure (1 à 7) */
+              var maskBorderN: Int
+                  get() = gi("mkbn", 1).coerceIn(1, 7)
+                  set(v) {
+                      p("mkbn", v)
+                  }
+
+              /** Les couleurs défilent le long de la bordure */
+              var maskBorderRot: Boolean
+                  get() = gb("mkbr", false)
+                  set(v) {
+                      p("mkbr", v)
+                  }
+
+              var maskBorderSpeed: Int
+                  get() = gi("mkbs", 4).coerceIn(1, 10)
+                  set(v) {
+                      p("mkbs", v)
+                  }
+
+              /** 0 = vers la droite, 1 = vers la gauche */
+              var maskBorderDir: Int
+                  get() = gi("mkbd", 0)
+                  set(v) {
+                      p("mkbd", v)
+                  }
+
+              var maskBorderNeon: Boolean
+                  get() = gb("mkbnn", false)
+                  set(v) {
+                      p("mkbnn", v)
+                  }
+
+              var maskGlow: Int
+                  get() = gi("mkbg", 14)
+                  set(v) {
+                      p("mkbg", v)
+                  }
+
+              /** Contour bleu de guidage pendant le réglage */
+              var maskGuide: Boolean
+                  get() = gb("mkgd", false)
+                  set(v) {
+                      p("mkgd", v)
+                  }
+
+              /** Point rouge sur le point réglé */
+              var maskDot: Boolean
+                  get() = gb("mkdt", true)
+                  set(v) {
+                      p("mkdt", v)
+                  }
+
+              fun maskBorderColor(i: Int): Int {
+                  val defs = intArrayOf(0xFF18FFFF.toInt(), 0xFFFF4081.toInt(), 0xFFE040FB.toInt(), 0xFF00E676.toInt(), 0xFFFFEA00.toInt(), 0xFFFF9100.toInt(), 0xFFFFFFFF.toInt())
+                  return gi("mkbc" + i, defs[i.coerceIn(0, 6)])
+              }
+
+              fun setMaskBorderColor(i: Int, v: Int) {
+                  p("mkbc" + i, v)
+              }
           /** Décalage [dx, dy] en pixels du point i du bord du haut (top = true) ou du bord du bas */
           fun maskPt(top: Boolean, i: Int): IntArray {
               val a = j.optJSONArray(if (top) "mktop" else "mkbot")
@@ -3483,14 +3557,19 @@ jobs:
           cat > app/src/main/java/com/example/island/MaskView.kt <<'KOTLIN_EOF'
           package com.example.island
 
+          import android.animation.ValueAnimator
           import android.content.Context
+          import android.graphics.BlurMaskFilter
           import android.graphics.Canvas
           import android.graphics.CornerPathEffect
+          import android.graphics.LinearGradient
           import android.graphics.Paint
           import android.graphics.Path
+          import android.graphics.Shader
           import android.view.View
+          import android.view.animation.LinearInterpolator
 
-          /** Barre de masquage : un contour à points réglables, rempli de la couleur choisie, pour cacher les pixels morts */
+          /** Barre de masquage : un contour à points réglables, rempli de la couleur choisie, avec bordure (unie, dégradée, rotative, néon) */
           class MaskView(ctx: Context) : View(ctx) {
               companion object {
                   /** Place gardée sous la forme (en pixels) pour que les points du bas puissent descendre */
@@ -3500,14 +3579,53 @@ jobs:
               private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
               private val line = Paint(Paint.ANTI_ALIAS_FLAG)
               private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val border = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val glow = Paint(Paint.ANTI_ALIAS_FLAG)
+              private var anim: ValueAnimator? = null
+              private var animDur = 0L
+              private var phase = 0f
 
               init {
+                  setLayerType(LAYER_TYPE_SOFTWARE, null)
                   fill.style = Paint.Style.FILL
                   line.style = Paint.Style.STROKE
                   line.strokeWidth = 2f
                   line.color = 0xFF18FFFF.toInt()
                   dot.style = Paint.Style.FILL
                   dot.color = 0xFFFF1744.toInt()
+                  border.style = Paint.Style.STROKE
+                  glow.style = Paint.Style.STROKE
+              }
+
+              /** Lance ou arrête le défilement des couleurs de la bordure selon les réglages */
+              fun syncAnim() {
+                  val c = Store.cfg
+                  val need = visibility == View.VISIBLE && c.maskBorderOn && c.maskBorderRot && c.maskBorderN > 1
+                  if (!need) {
+                      anim?.cancel()
+                      anim = null
+                      return
+                  }
+                  val dur = 12000L / c.maskBorderSpeed
+                  if (anim != null && animDur == dur) return
+                  anim?.cancel()
+                  animDur = dur
+                  val a = ValueAnimator.ofFloat(0f, 1f)
+                  a.duration = dur
+                  a.repeatCount = ValueAnimator.INFINITE
+                  a.interpolator = LinearInterpolator()
+                  a.addUpdateListener {
+                      phase = it.animatedValue as Float
+                      invalidate()
+                  }
+                  anim = a
+                  a.start()
+              }
+
+              override fun onDetachedFromWindow() {
+                  anim?.cancel()
+                  anim = null
+                  super.onDetachedFromWindow()
               }
 
               /** Coordonnées réelles (en pixels de l'écran) des points : bord du haut de gauche à droite, puis bord du bas de droite à gauche */
@@ -3562,12 +3680,46 @@ jobs:
                   val pe = if (!c.maskSmooth && c.maskRound > 0) CornerPathEffect(c.maskRound.toFloat()) else null
                   fill.pathEffect = pe
                   canvas.drawPath(path, fill)
+
+                  if (c.maskBorderOn) {
+                      val bw = c.maskBorderW.toFloat()
+                      val k = c.maskBorderN
+                      var shader: Shader? = null
+                      if (k > 1) {
+                          val x0 = (width / 2 + c.maskX - c.maskW / 2).toFloat()
+                          val w = maxOf(1, c.maskW).toFloat()
+                          val cols = IntArray(k + 1) { c.maskBorderColor(it % k) }
+                          val sh = (if (c.maskBorderDir == 0) phase else -phase) * w
+                          shader = LinearGradient(x0 + sh, 0f, x0 + sh + w, 0f, cols, null, Shader.TileMode.REPEAT)
+                      }
+                      val col = c.maskBorderColor(0)
+                      if (c.maskBorderNeon) {
+                          val g = maxOf(2, c.maskGlow).toFloat()
+                          glow.strokeWidth = bw + g * 0.5f
+                          glow.pathEffect = pe
+                          glow.shader = shader
+                          glow.color = col
+                          glow.maskFilter = BlurMaskFilter(g, BlurMaskFilter.Blur.NORMAL)
+                          canvas.drawPath(path, glow)
+                          canvas.drawPath(path, glow)
+                      }
+                      border.strokeWidth = bw
+                      border.pathEffect = pe
+                      border.shader = shader
+                      border.color = col
+                      canvas.drawPath(path, border)
+                  }
+
                   if (Store.maskEdit) {
-                      line.pathEffect = pe
-                      canvas.drawPath(path, line)
-                      val i = Store.maskSelIdx.coerceIn(0, n - 1)
-                      val k = if (Store.maskSelTop) i else n * 2 - 1 - i
-                      canvas.drawCircle(xs[k], ys[k], 7f, dot)
+                      if (c.maskGuide) {
+                          line.pathEffect = pe
+                          canvas.drawPath(path, line)
+                      }
+                      if (c.maskDot) {
+                          val i = Store.maskSelIdx.coerceIn(0, n - 1)
+                          val q = if (Store.maskSelTop) i else n * 2 - 1 - i
+                          canvas.drawCircle(xs[q], ys[q], 7f, dot)
+                      }
                   }
               }
           }
@@ -4365,6 +4517,7 @@ jobs:
                   mask.visibility = if (maskShow) View.VISIBLE else View.INVISIBLE
                   bar.syncAnim()
                   halo.syncAnim()
+                  mask.syncAnim()
 
                   if (off || st == Display.STATE_OFF) engine.stop() else engine.start()
               }
@@ -4873,9 +5026,32 @@ jobs:
                   Store.maskSelIdx = sel
 
                   b.addView(ui.section("Barre de masquage (pixels morts)"))
-                  b.addView(ui.hint("Tant que cet onglet est ouvert, le masque s'affiche sur ton écran à la place de la barre, avec un contour cyan et un point rouge sur le point que tu règles. Tout est en pixels réels : − et + avancent d'un pixel, et tu peux taper le chiffre exact."))
+                  b.addView(ui.hint("Tant que cet onglet est ouvert, le masque s'affiche sur ton écran à la place de la barre. Tout est en pixels réels : − et + avancent d'un pixel, et tu peux taper le chiffre exact."))
                   b.addView(ui.toggle("Activer le masque", { c.maskOn }, { c.maskOn = it }))
                   b.addView(ui.colorRow("Couleur du masque", { c.maskColor }, { c.maskColor = it }, false))
+                  b.addView(ui.toggle("Contour bleu de guidage pendant le réglage", { c.maskGuide }, { c.maskGuide = it }))
+                  b.addView(ui.toggle("Point rouge sur le point réglé", { c.maskDot }, { c.maskDot = it }))
+
+                  b.addView(ui.section("Bordure"))
+                  b.addView(ui.toggle("Afficher une bordure", { c.maskBorderOn }, { c.maskBorderOn = it }) { rebuild() })
+                  if (c.maskBorderOn) {
+                      b.addView(ui.slider("Épaisseur", 1, 30, { c.maskBorderW }, { c.maskBorderW = it }, " px"))
+                      b.addView(ui.chips("Nombre de couleurs", listOf("1", "2", "3", "4", "5", "6", "7"), { c.maskBorderN - 1 }, { c.maskBorderN = it + 1 }) { rebuild() })
+                      for (i in 0 until c.maskBorderN) {
+                          b.addView(ui.colorRow("Couleur " + (i + 1), { c.maskBorderColor(i) }, { c.setMaskBorderColor(i, it) }, false))
+                      }
+                      if (c.maskBorderN > 1) {
+                          b.addView(ui.toggle("Rotatif (les couleurs défilent)", { c.maskBorderRot }, { c.maskBorderRot = it }) { rebuild() })
+                          if (c.maskBorderRot) {
+                              b.addView(ui.slider("Vitesse", 1, 10, { c.maskBorderSpeed }, { c.maskBorderSpeed = it }))
+                              b.addView(ui.chips("Sens", listOf("Vers la droite", "Vers la gauche"), { c.maskBorderDir }, { c.maskBorderDir = it }))
+                          }
+                      }
+                      b.addView(ui.toggle("Effet néon lumineux", { c.maskBorderNeon }, { c.maskBorderNeon = it }) { rebuild() })
+                      if (c.maskBorderNeon) {
+                          b.addView(ui.slider("Intensité du halo", 2, 40, { c.maskGlow }, { c.maskGlow = it }, " px"))
+                      }
+                  }
 
                   b.addView(ui.section("Applis où le masque remplace la barre"))
                   val apps = c.maskApps
@@ -5731,8 +5907,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 27
-                  versionName = "2.7.0"
+                  versionCode = 28
+                  versionName = "2.8.0"
               }
 
               compileOptions {
