@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 3.1.0 (${{ github.sha }})
+run-name: Build APK 3.2.0 (${{ github.sha }})
 
 on:
   push:
@@ -1418,6 +1418,26 @@ jobs:
               /** Pastille en cours de réglage (0 à 9) */
               @Volatile
               var paSel = 0
+
+              /** Déplacement au toucher sur l'écran (session) */
+              @Volatile
+              var touchEdit = true
+
+              /** Ce qu'on peut déplacer au toucher : 0 rien, 1 masque, 2 pastilles, 3 barre de statut */
+              @Volatile
+              var dragGroup = 0
+
+              /** Demande à l'écran de réglages de se redessiner après un déplacement au toucher */
+              var uiRefresh: (() -> Unit)? = null
+
+              fun dragChanged() {
+                  IslandAccessibilityService.instance?.reload()
+              }
+
+              fun dragDone() {
+                  save()
+                  uiRefresh?.invoke()
+              }
               var cfg: Config = Config(JSONObject())
               private var sp: SharedPreferences? = null
 
@@ -3731,6 +3751,7 @@ jobs:
           import android.graphics.Path
           import android.graphics.PathMeasure
           import android.graphics.Shader
+          import android.view.MotionEvent
           import android.view.View
           import android.view.animation.AccelerateDecelerateInterpolator
           import android.view.animation.LinearInterpolator
@@ -3738,11 +3759,46 @@ jobs:
           /** Barre de masquage : un contour à points réglables, rempli de la couleur choisie, avec bordure (unie, dégradée, rotative, néon) */
           class MaskView(ctx: Context) : View(ctx) {
               companion object {
-                  /** Place gardée sous la forme (en pixels) pour que les points du bas puissent descendre */
-                  const val EXTRA = 140
-
                   /** Nombre de points utilisés pour transformer une forme en une autre */
                   const val K = 240
+
+                  /** Coordonnées réelles (en pixels de l'écran) des points : bord du haut de gauche à droite, puis bord du bas de droite à gauche */
+                  fun points(c: Config, sw: Int, xs: FloatArray, ys: FloatArray) {
+                      val n = c.maskN
+                      val x0 = (sw / 2 + c.maskX - c.maskW / 2).toFloat()
+                      val w = c.maskW.toFloat()
+                      val yTop = c.maskY.toFloat()
+                      val yBot = (c.maskY + c.maskH).toFloat()
+                      for (i in 0 until n) {
+                          val fx = Math.round(w * i / (n - 1)).toFloat()
+                          val t = c.maskPt(true, i)
+                          xs[i] = x0 + fx + t[0]
+                          ys[i] = yTop + t[1]
+                          val b = c.maskPt(false, i)
+                          val k = n * 2 - 1 - i
+                          xs[k] = x0 + fx + b[0]
+                          ys[k] = yBot + b[1]
+                      }
+                  }
+
+                  /** Rectangle [gauche, haut, droite, bas] qui contient tous les points */
+                  fun bounds(c: Config, sw: Int): IntArray {
+                      val n = c.maskN
+                      val xs = FloatArray(n * 2)
+                      val ys = FloatArray(n * 2)
+                      points(c, sw, xs, ys)
+                      var l = Float.MAX_VALUE
+                      var t = Float.MAX_VALUE
+                      var r = -Float.MAX_VALUE
+                      var b = -Float.MAX_VALUE
+                      for (i in xs.indices) {
+                          if (xs[i] < l) l = xs[i]
+                          if (xs[i] > r) r = xs[i]
+                          if (ys[i] < t) t = ys[i]
+                          if (ys[i] > b) b = ys[i]
+                      }
+                      return intArrayOf(Math.floor(l.toDouble()).toInt(), Math.floor(t.toDouble()).toInt(), Math.ceil(r.toDouble()).toInt(), Math.ceil(b.toDouble()).toInt())
+                  }
 
                   /** Échantillonne un contour fermé en K points (x, y alternés), sens horaire, départ en haut à gauche */
                   fun outline(path: Path, dx: Float, dy: Float): FloatArray {
@@ -3779,6 +3835,11 @@ jobs:
                   }
               }
 
+              /** Coin haut-gauche de la fenêtre sur l'écran : tout est dessiné en coordonnées d'écran */
+              var winX = 0
+              var winY = 0
+              var screenW = ctx.resources.displayMetrics.widthPixels
+
               private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
               private val line = Paint(Paint.ANTI_ALIAS_FLAG)
               private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -3790,6 +3851,14 @@ jobs:
               private var morphFrom: FloatArray? = null
               private var morphT = 1f
               private var morphAnim: ValueAnimator? = null
+
+              private var dragMode = 0
+              private var dragTop = true
+              private var dragIdx = 0
+              private var lastX = 0f
+              private var lastY = 0f
+              private var accX = 0f
+              private var accY = 0f
 
               init {
                   setLayerType(LAYER_TYPE_SOFTWARE, null)
@@ -3872,25 +3941,6 @@ jobs:
                   super.onDetachedFromWindow()
               }
 
-              /** Coordonnées réelles (en pixels de l'écran) des points : bord du haut de gauche à droite, puis bord du bas de droite à gauche */
-              private fun pts(c: Config, xs: FloatArray, ys: FloatArray) {
-                  val n = c.maskN
-                  val x0 = (width / 2 + c.maskX - c.maskW / 2).toFloat()
-                  val w = c.maskW.toFloat()
-                  val yTop = c.maskY.toFloat()
-                  val yBot = (c.maskY + c.maskH).toFloat()
-                  for (i in 0 until n) {
-                      val fx = Math.round(w * i / (n - 1)).toFloat()
-                      val t = c.maskPt(true, i)
-                      xs[i] = x0 + fx + t[0]
-                      ys[i] = yTop + t[1]
-                      val b = c.maskPt(false, i)
-                      val k = n * 2 - 1 - i
-                      xs[k] = x0 + fx + b[0]
-                      ys[k] = yBot + b[1]
-                  }
-              }
-
               private fun buildPath(c: Config, xs: FloatArray, ys: FloatArray): Path {
                   val m = xs.size
                   val p = Path()
@@ -3928,7 +3978,7 @@ jobs:
                   val k = c.maskBorderN
                   var shader: Shader? = null
                   if (k > 1) {
-                      val x0 = (width / 2 + c.maskX - c.maskW / 2).toFloat()
+                      val x0 = (screenW / 2 + c.maskX - c.maskW / 2).toFloat()
                       val w = maxOf(1, c.maskW).toFloat()
                       val cols = IntArray(k + 1) { c.maskBorderColor(it % k) }
                       val sh = (if (c.maskBorderDir == 0) phase else -phase) * w
@@ -3956,11 +4006,18 @@ jobs:
               }
 
               override fun onDraw(canvas: Canvas) {
+                  canvas.save()
+                  canvas.translate(-winX.toFloat(), -winY.toFloat())
+                  drawAll(canvas)
+                  canvas.restore()
+              }
+
+              private fun drawAll(canvas: Canvas) {
                   val c = Store.cfg
                   val n = c.maskN
                   val xs = FloatArray(n * 2)
                   val ys = FloatArray(n * 2)
-                  pts(c, xs, ys)
+                  points(c, screenW, xs, ys)
                   val path = buildPath(c, xs, ys)
 
                   // transformation en cours : le contour de la barre devient celui du masque
@@ -3999,6 +4056,62 @@ jobs:
                           canvas.drawCircle(xs[q], ys[q], 7f, dot)
                       }
                   }
+              }
+
+              /** Pendant le réglage : glisser déplace tout le masque, toucher un point déplace ce point */
+              override fun onTouchEvent(e: MotionEvent): Boolean {
+                  if (!Store.touchEdit || Store.dragGroup != 1 || !Store.maskEdit) return false
+                  val c = Store.cfg
+                  when (e.actionMasked) {
+                      MotionEvent.ACTION_DOWN -> {
+                          lastX = e.rawX
+                          lastY = e.rawY
+                          accX = 0f
+                          accY = 0f
+                          val n = c.maskN
+                          val xs = FloatArray(n * 2)
+                          val ys = FloatArray(n * 2)
+                          points(c, screenW, xs, ys)
+                          val k = Drag.nearest(xs, ys, e.x + winX, e.y + winY, 60f)
+                          if (k >= 0) {
+                              dragMode = 2
+                              dragTop = k < n
+                              dragIdx = if (k < n) k else n * 2 - 1 - k
+                              Store.maskSelTop = dragTop
+                              Store.maskSelIdx = dragIdx
+                              invalidate()
+                          } else {
+                              dragMode = 1
+                          }
+                          return true
+                      }
+                      MotionEvent.ACTION_MOVE -> {
+                          accX += e.rawX - lastX
+                          accY += e.rawY - lastY
+                          lastX = e.rawX
+                          lastY = e.rawY
+                          val ix = accX.toInt()
+                          val iy = accY.toInt()
+                          if (ix == 0 && iy == 0) return true
+                          accX -= ix
+                          accY -= iy
+                          if (dragMode == 1) {
+                              c.maskX = c.maskX + ix
+                              c.maskY = (c.maskY + iy).coerceAtLeast(0)
+                          } else if (dragMode == 2) {
+                              val q = c.maskPt(dragTop, dragIdx)
+                              c.setMaskPt(dragTop, dragIdx, q[0] + ix, q[1] + iy)
+                          }
+                          Store.dragChanged()
+                          return true
+                      }
+                      MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                          dragMode = 0
+                          Store.dragDone()
+                          return true
+                      }
+                  }
+                  return true
               }
           }
           KOTLIN_EOF
@@ -4062,6 +4175,24 @@ jobs:
                   return p
               }
           }
+          /** Aide au déplacement tactile des points */
+          object Drag {
+              /** Numéro du point le plus proche de (x, y), à moins de maxD pixels ; -1 s'il n'y en a pas */
+              fun nearest(xs: FloatArray, ys: FloatArray, x: Float, y: Float, maxD: Float): Int {
+                  var best = -1
+                  var bd = maxD * maxD
+                  for (i in xs.indices) {
+                      val dx = xs[i] - x
+                      val dy = ys[i] - y
+                      val dd = dx * dx + dy * dy
+                      if (dd <= bd) {
+                          bd = dd
+                          best = i
+                      }
+                  }
+                  return best
+              }
+          }
           KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
           cat > app/src/main/java/com/example/island/PastilleView.kt <<'KOTLIN_EOF'
@@ -4073,6 +4204,7 @@ jobs:
           import android.graphics.Path
           import android.graphics.RectF
           import android.os.BatteryManager
+          import android.view.MotionEvent
           import android.view.View
           import java.text.SimpleDateFormat
           import java.util.Date
@@ -4093,6 +4225,13 @@ jobs:
               private val d = ctx.resources.displayMetrics.density
               private val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
               private val tick = Runnable { invalidate() }
+              private var dragMode = 0
+              private var lastX = 0f
+              private var lastY = 0f
+              private var accX = 0f
+              private var accY = 0f
+              private var dragTop = true
+              private var dragIdx = 0
 
               init {
                   fill.style = Paint.Style.FILL
@@ -4166,6 +4305,66 @@ jobs:
                   if (ct == 1 || ct == 2) postDelayed(tick, 1000)
               }
 
+              /** Pendant le réglage : glisser déplace la pastille, toucher un point (forme libre) déplace ce point */
+              override fun onTouchEvent(e: MotionEvent): Boolean {
+                  if (!Store.touchEdit || Store.dragGroup != 2) return false
+                  val c = Store.cfg
+                  when (e.actionMasked) {
+                      MotionEvent.ACTION_DOWN -> {
+                          lastX = e.rawX
+                          lastY = e.rawY
+                          accX = 0f
+                          accY = 0f
+                          dragMode = 1
+                          if (Store.paSel != idx) {
+                              Store.paSel = idx
+                              Store.psEdit = pre
+                          }
+                          if (c.psInt(pre, "shape", 1) == 2) {
+                              val n = c.psN(pre)
+                              val xs = FloatArray(n * 2)
+                              val ys = FloatArray(n * 2)
+                              PointShape.pts(c, pre, ox, oy, c.psInt(pre, "w", 120).toFloat(), c.psInt(pre, "h", 60).toFloat(), xs, ys)
+                              val k = Drag.nearest(xs, ys, e.x, e.y, 50f)
+                              if (k >= 0) {
+                                  dragMode = 2
+                                  dragTop = k < n
+                                  dragIdx = if (k < n) k else n * 2 - 1 - k
+                                  Store.psSelTop = dragTop
+                                  Store.psSelIdx = dragIdx
+                              }
+                          }
+                          Store.dragChanged()
+                          return true
+                      }
+                      MotionEvent.ACTION_MOVE -> {
+                          accX += e.rawX - lastX
+                          accY += e.rawY - lastY
+                          lastX = e.rawX
+                          lastY = e.rawY
+                          val ix = accX.toInt()
+                          val iy = accY.toInt()
+                          if (ix == 0 && iy == 0) return true
+                          accX -= ix
+                          accY -= iy
+                          if (dragMode == 1) {
+                              c.psSetInt(pre, "x", c.paX(idx) + ix)
+                              c.psSetInt(pre, "y", (c.paY(idx) + iy).coerceAtLeast(0))
+                          } else if (dragMode == 2) {
+                              val q = c.psPt(pre, dragTop, dragIdx)
+                              c.setPsPt(pre, dragTop, dragIdx, q[0] + ix, q[1] + iy)
+                          }
+                          Store.dragChanged()
+                          return true
+                      }
+                      MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                          dragMode = 0
+                          Store.dragDone()
+                          return true
+                      }
+                  }
+                  return true
+              }
               override fun onDetachedFromWindow() {
                   removeCallbacks(tick)
                   super.onDetachedFromWindow()
@@ -4721,6 +4920,13 @@ jobs:
               private var lastOff = false
               private var lastMaskShow = true
               private val pas = Array(10) { PastilleView(svc, it) }
+              private var bdMode = 0
+              private var bdTop = true
+              private var bdIdx = 0
+              private var bdX = 0f
+              private var bdY = 0f
+              private var bdAx = 0f
+              private var bdAy = 0f
               private val pasLp = Array(10) { WindowManager.LayoutParams() }
               private var added = false
 
@@ -4835,7 +5041,7 @@ jobs:
                       added = false
                       return
                   }
-                  bar.setOnTouchListener { _, e -> gesture.onTouchEvent(e) }
+                  bar.setOnTouchListener { _, e -> if (Store.touchEdit && Store.dragGroup == 3) barDrag(e) else gesture.onTouchEvent(e) }
                   notch.setOnTouchListener { _, e -> notchGesture.onTouchEvent(e) }
                   dm.registerDisplayListener(displayListener, handler)
                   val f = IntentFilter()
@@ -4879,7 +5085,7 @@ jobs:
                   bl.height = (c.height * d).toInt()
                   bl.x = (c.offX * d).toInt()
                   bl.y = (c.offY * d).toInt()
-                  val touch = c.tapAction != 0 || c.longAction != 0
+                  val touch = c.tapAction != 0 || c.longAction != 0 || (Store.touchEdit && Store.dragGroup == 3)
                   var fl = bl.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
                   fl = fl and WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL.inv()
                   fl = fl or (if (touch) WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
@@ -4954,6 +5160,7 @@ jobs:
                       pl.y = wt
                       pl.width = maxOf(1, wr - wl)
                       pl.height = maxOf(1, wb - wt)
+                    setTouchable(pl, Store.touchEdit && Store.dragGroup == 2)
                       pas[i].ox = (left - wl).toFloat()
                       pas[i].oy = (top - wt).toFloat()
                       try { wm.updateViewLayout(pas[i], pl) } catch (e: Exception) {}
@@ -4963,10 +5170,33 @@ jobs:
                   // masque : fenêtre de la largeur de l'écran, la forme est dessinée en pixels réels à l'intérieur
                   val ml = maskLp
                   if (ml != null) {
-                      ml.width = svc.resources.displayMetrics.widthPixels
-                      ml.height = maxOf(c.maskY + c.maskH + MaskView.EXTRA, ((c.offY + c.height) * d).toInt() + 40)
-                      ml.x = 0
-                      ml.y = 0
+                      // fenêtre ajustée à la forme (avec une marge pour la bordure et le halo) ; elle englobe aussi la barre pendant la transformation
+                      val bb = MaskView.bounds(c, sw)
+                      var wl = bb[0] - 80
+                      var wt = bb[1] - 80
+                      var wr = bb[2] + 80
+                      var wb = bb[3] + 80
+                      if (c.maskMorph && c.maskFade > 0) {
+                          val bwp = c.width * d
+                          val bl0 = (sw - bwp) / 2f + c.offX * d
+                          wl = minOf(wl, bl0.toInt() - 4)
+                          wt = minOf(wt, (c.offY * d).toInt() - 4)
+                          wr = maxOf(wr, (bl0 + bwp).toInt() + 4)
+                          wb = maxOf(wb, ((c.offY + c.height) * d).toInt() + 4)
+                      }
+                      wl = maxOf(0, wl)
+                      wt = maxOf(0, wt)
+                      wr = minOf(sw, wr)
+                      wb = minOf(sh, wb)
+                      ml.gravity = Gravity.TOP or Gravity.LEFT
+                      ml.x = wl
+                      ml.y = wt
+                      ml.width = maxOf(1, wr - wl)
+                      ml.height = maxOf(1, wb - wt)
+                      mask.winX = wl
+                      mask.winY = wt
+                      mask.screenW = sw
+                      setTouchable(ml, Store.touchEdit && Store.dragGroup == 1 && Store.maskEdit)
                       try { wm.updateViewLayout(mask, ml) } catch (e: Exception) {}
                       mask.post { mask.invalidate() }
                   }
@@ -5076,6 +5306,66 @@ jobs:
                   mask.startMorph(from, toMask, ms) {
                       if (!toMask) mask.visibility = View.INVISIBLE
                   }
+              }
+              /** Réglage de la forme de la barre : glisser déplace la barre, toucher un point (forme libre) déplace ce point */
+              private fun barDrag(e: MotionEvent): Boolean {
+                  val c = Store.cfg
+                  when (e.actionMasked) {
+                      MotionEvent.ACTION_DOWN -> {
+                          bdX = e.rawX
+                          bdY = e.rawY
+                          bdAx = 0f
+                          bdAy = 0f
+                          bdMode = 1
+                          if (c.shape == 8) {
+                              val n = c.psN("bs_")
+                              val xs = FloatArray(n * 2)
+                              val ys = FloatArray(n * 2)
+                              PointShape.pts(c, "bs_", 0f, 0f, bar.width.toFloat(), bar.height.toFloat(), xs, ys)
+                              val k = Drag.nearest(xs, ys, e.x, e.y, 50f)
+                              if (k >= 0) {
+                                  bdMode = 2
+                                  bdTop = k < n
+                                  bdIdx = if (k < n) k else n * 2 - 1 - k
+                                  Store.psSelTop = bdTop
+                                  Store.psSelIdx = bdIdx
+                                  bar.invalidate()
+                              }
+                          }
+                          return true
+                      }
+                      MotionEvent.ACTION_MOVE -> {
+                          bdAx += e.rawX - bdX
+                          bdAy += e.rawY - bdY
+                          bdX = e.rawX
+                          bdY = e.rawY
+                          if (bdMode == 1) {
+                              val ix = (bdAx / d).toInt()
+                              val iy = (bdAy / d).toInt()
+                              if (ix == 0 && iy == 0) return true
+                              bdAx -= ix * d
+                              bdAy -= iy * d
+                              c.offX = c.offX + ix
+                              c.offY = (c.offY + iy).coerceAtLeast(0)
+                          } else if (bdMode == 2) {
+                              val ix = bdAx.toInt()
+                              val iy = bdAy.toInt()
+                              if (ix == 0 && iy == 0) return true
+                              bdAx -= ix
+                              bdAy -= iy
+                              val q = c.psPt("bs_", bdTop, bdIdx)
+                              c.setPsPt("bs_", bdTop, bdIdx, q[0] + ix, q[1] + iy)
+                          }
+                          Store.dragChanged()
+                          return true
+                      }
+                      MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                          bdMode = 0
+                          Store.dragDone()
+                          return true
+                      }
+                  }
+                  return true
               }
               /** Appelé quand l'appli au premier plan change */
               fun setForeground(pkg: String) {
@@ -5493,13 +5783,22 @@ jobs:
                   refreshViews()
                   if (tab == 4) showTab(4)
                   if (tab == 9) setMaskEdit(true)
-                  if (tab == 0 || tab == 10) showTab(tab)
+                  Store.uiRefresh = {
+                      runOnUiThread {
+                          preview.relayout()
+                          refreshViews()
+                          rebuild()
+                      }
+                  }
+                  showTab(tab)
               }
 
               override fun onPause() {
                   setMaskEdit(false)
-                  if (Store.psEdit.isNotEmpty()) {
+                  Store.uiRefresh = null
+                  if (Store.psEdit.isNotEmpty() || Store.dragGroup != 0) {
                       Store.psEdit = ""
+                      Store.dragGroup = 0
                       IslandAccessibilityService.instance?.reload()
                   }
                   engine.stop()
@@ -5587,6 +5886,8 @@ jobs:
 
                   b.addView(ui.section("Barre de masquage (pixels morts)"))
                   b.addView(ui.hint("Tant que cet onglet est ouvert, le masque s'affiche sur ton écran à la place de la barre. Tout est en pixels réels : − et + avancent d'un pixel, et tu peux taper le chiffre exact."))
+                  b.addView(ui.toggle("✋ Déplacer au toucher sur l'écran", { Store.touchEdit }, { Store.touchEdit = it }))
+                  b.addView(ui.hint("Fais glisser le masque sur ton écran pour le déplacer, ou touche un de ses points pour le déplacer lui seul."))
                   b.addView(ui.toggle("Activer le masque", { c.maskOn }, { c.maskOn = it }))
                   b.addView(ui.colorRow("Couleur du masque", { c.maskColor }, { c.maskColor = it }, false))
                   b.addView(ui.toggle("Contour bleu de guidage pendant le réglage", { c.maskGuide }, { c.maskGuide = it }))
@@ -5671,7 +5972,14 @@ jobs:
                   tab = i
                   setMaskEdit(i == 9)
                   val oldEdit = Store.psEdit
+                  val oldGroup = Store.dragGroup
                   Store.psEdit = ""
+                  Store.dragGroup = when (i) {
+                      0 -> 3
+                      9 -> 1
+                      10 -> 2
+                      else -> 0
+                  }
                   for (k in 0 until tabRow.childCount) ui.styleChip(tabRow.getChildAt(k) as TextView, k == i)
                   content.removeAllViews()
                   val v = when (i) {
@@ -5688,7 +5996,7 @@ jobs:
                       else -> scroll(tabOptions())
                   }
                   content.addView(v, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
-                  if (Store.psEdit != oldEdit) IslandAccessibilityService.instance?.reload()
+                  if (Store.psEdit != oldEdit || Store.dragGroup != oldGroup) IslandAccessibilityService.instance?.reload()
               }
 
               /** Reconstruit l'onglet courant en gardant la position de défilement */
@@ -5818,6 +6126,8 @@ jobs:
                   val c = Store.cfg
                   val b = ui.vbox()
                   b.addView(ui.section("Forme de la barre"))
+                  b.addView(ui.toggle("✋ Déplacer au toucher sur l'écran", { Store.touchEdit }, { Store.touchEdit = it }))
+                  b.addView(ui.hint("Touche la barre sur ton écran et fais-la glisser pour la déplacer. En forme libre, touche un point pour le déplacer."))
                   b.addView(ui.chips(null, listOf("▭ Rectangle", "✏️ Forme libre (points)"), { if (c.shapeFree) 1 else 0 }, { c.shapeFree = it == 1 }) { rebuild() })
                   b.addView(ui.section("Taille et position"))
                   b.addView(ui.slider("Largeur", 60, 420, { c.width }, { c.width = it }, " dp"))
@@ -6012,6 +6322,8 @@ jobs:
 
                   b.addView(ui.section("Pastilles indépendantes"))
                   b.addView(ui.hint(active.toString() + " pastille(s) active(s) sur 10. Choisis un numéro et règle-le : la pastille apparaît en direct sur ton écran, même éteinte, tant que cet onglet est ouvert."))
+                  b.addView(ui.toggle("✋ Déplacer au toucher sur l'écran", { Store.touchEdit }, { Store.touchEdit = it }))
+                  b.addView(ui.hint("Touche une pastille sur ton écran pour la choisir, puis fais-la glisser pour la placer. En forme libre, touche un de ses points pour le déplacer."))
                   b.addView(ui.chips("Pastille n°", (1..10).map { it.toString() }, { sel }, { Store.paSel = it }) { rebuild() })
                   b.addView(ui.toggle("Activée", { c.psBool(pre, "on", false) }, { c.psSetBool(pre, "on", it) }) { rebuild() })
 
@@ -6575,8 +6887,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 31
-                  versionName = "3.1.0"
+                  versionCode = 32
+                  versionName = "3.2.0"
               }
 
               compileOptions {
