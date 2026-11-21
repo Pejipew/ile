@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.9.0 (${{ github.sha }})
+run-name: Build APK 3.0.0 (${{ github.sha }})
 
 on:
   push:
@@ -1188,6 +1188,13 @@ jobs:
                   get() = gi("mkfd", 250)
                   set(v) {
                       p("mkfd", v)
+                  }
+
+              /** La forme de la barre se transforme en celle du masque (et inversement) pendant la transition */
+              var maskMorph: Boolean
+                  get() = gb("mkmp", true)
+                  set(v) {
+                      p("mkmp", v)
                   }
 
               fun maskBorderColor(i: Int): Int {
@@ -3564,6 +3571,8 @@ jobs:
           cat > app/src/main/java/com/example/island/MaskView.kt <<'KOTLIN_EOF'
           package com.example.island
 
+          import android.animation.Animator
+          import android.animation.AnimatorListenerAdapter
           import android.animation.ValueAnimator
           import android.content.Context
           import android.graphics.BlurMaskFilter
@@ -3572,8 +3581,10 @@ jobs:
           import android.graphics.LinearGradient
           import android.graphics.Paint
           import android.graphics.Path
+          import android.graphics.PathMeasure
           import android.graphics.Shader
           import android.view.View
+          import android.view.animation.AccelerateDecelerateInterpolator
           import android.view.animation.LinearInterpolator
 
           /** Barre de masquage : un contour à points réglables, rempli de la couleur choisie, avec bordure (unie, dégradée, rotative, néon) */
@@ -3581,6 +3592,43 @@ jobs:
               companion object {
                   /** Place gardée sous la forme (en pixels) pour que les points du bas puissent descendre */
                   const val EXTRA = 140
+
+                  /** Nombre de points utilisés pour transformer une forme en une autre */
+                  const val K = 240
+
+                  /** Échantillonne un contour fermé en K points (x, y alternés), sens horaire, départ en haut à gauche */
+                  fun outline(path: Path, dx: Float, dy: Float): FloatArray {
+                      val pm = PathMeasure(path, true)
+                      val len = pm.length
+                      val raw = FloatArray(K * 2)
+                      val pos = FloatArray(2)
+                      for (i in 0 until K) {
+                          pm.getPosTan(len * i / K, pos, null)
+                          raw[i * 2] = pos[0] + dx
+                          raw[i * 2 + 1] = pos[1] + dy
+                      }
+                      var area = 0f
+                      for (i in 0 until K) {
+                          val j = (i + 1) % K
+                          area += raw[i * 2] * raw[j * 2 + 1] - raw[j * 2] * raw[i * 2 + 1]
+                      }
+                      var best = 0
+                      var bv = Float.MAX_VALUE
+                      for (i in 0 until K) {
+                          val v = raw[i * 2] + raw[i * 2 + 1]
+                          if (v < bv) {
+                              bv = v
+                              best = i
+                          }
+                      }
+                      val res = FloatArray(K * 2)
+                      for (i in 0 until K) {
+                          val src = if (area >= 0f) (best + i) % K else ((best - i) % K + K) % K
+                          res[i * 2] = raw[src * 2]
+                          res[i * 2 + 1] = raw[src * 2 + 1]
+                      }
+                      return res
+                  }
               }
 
               private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -3591,6 +3639,9 @@ jobs:
               private var anim: ValueAnimator? = null
               private var animDur = 0L
               private var phase = 0f
+              private var morphFrom: FloatArray? = null
+              private var morphT = 1f
+              private var morphAnim: ValueAnimator? = null
 
               init {
                   setLayerType(LAYER_TYPE_SOFTWARE, null)
@@ -3629,9 +3680,47 @@ jobs:
                   a.start()
               }
 
+              /** Transforme le contour de la barre (from, en pixels écran) en celui du masque (toMask = true) ou l'inverse */
+              fun startMorph(from: FloatArray, toMask: Boolean, ms: Long, end: () -> Unit) {
+                  cancelMorph()
+                  morphFrom = from
+                  morphT = if (toMask) 0f else 1f
+                  val a = ValueAnimator.ofFloat(morphT, if (toMask) 1f else 0f)
+                  a.duration = ms
+                  a.interpolator = AccelerateDecelerateInterpolator()
+                  a.addUpdateListener {
+                      morphT = it.animatedValue as Float
+                      invalidate()
+                  }
+                  a.addListener(object : AnimatorListenerAdapter() {
+                      private var cancelled = false
+
+                      override fun onAnimationCancel(animation: Animator) {
+                          cancelled = true
+                      }
+
+                      override fun onAnimationEnd(animation: Animator) {
+                          if (cancelled) return
+                          morphFrom = null
+                          morphAnim = null
+                          invalidate()
+                          end()
+                      }
+                  })
+                  morphAnim = a
+                  a.start()
+              }
+
+              fun cancelMorph() {
+                  morphAnim?.cancel()
+                  morphAnim = null
+                  morphFrom = null
+              }
+
               override fun onDetachedFromWindow() {
                   anim?.cancel()
                   anim = null
+                  cancelMorph()
                   super.onDetachedFromWindow()
               }
 
@@ -3676,6 +3765,48 @@ jobs:
                   return p
               }
 
+              private fun mix(a: Int, b: Int, t: Float): Int {
+                  fun ch(s: Int): Int {
+                      val x = (a shr s) and 0xFF
+                      val y = (b shr s) and 0xFF
+                      return (x + (y - x) * t).toInt().coerceIn(0, 255)
+                  }
+                  return (ch(24) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+              }
+
+              /** Bordure (unie ou dégradée, néon ou non) ; a = opacité de 0 à 1 */
+              private fun drawBorder(canvas: Canvas, c: Config, path: Path, pe: CornerPathEffect?, a: Float) {
+                  val bw = c.maskBorderW.toFloat()
+                  val k = c.maskBorderN
+                  var shader: Shader? = null
+                  if (k > 1) {
+                      val x0 = (width / 2 + c.maskX - c.maskW / 2).toFloat()
+                      val w = maxOf(1, c.maskW).toFloat()
+                      val cols = IntArray(k + 1) { c.maskBorderColor(it % k) }
+                      val sh = (if (c.maskBorderDir == 0) phase else -phase) * w
+                      shader = LinearGradient(x0 + sh, 0f, x0 + sh + w, 0f, cols, null, Shader.TileMode.REPEAT)
+                  }
+                  val col = c.maskBorderColor(0)
+                  val alpha = (255 * a).toInt().coerceIn(0, 255)
+                  if (c.maskBorderNeon) {
+                      val g = maxOf(2, c.maskGlow).toFloat()
+                      glow.strokeWidth = bw + g * 0.5f
+                      glow.pathEffect = pe
+                      glow.shader = shader
+                      glow.color = col
+                      glow.alpha = alpha
+                      glow.maskFilter = BlurMaskFilter(g, BlurMaskFilter.Blur.NORMAL)
+                      canvas.drawPath(path, glow)
+                      canvas.drawPath(path, glow)
+                  }
+                  border.strokeWidth = bw
+                  border.pathEffect = pe
+                  border.shader = shader
+                  border.color = col
+                  border.alpha = alpha
+                  canvas.drawPath(path, border)
+              }
+
               override fun onDraw(canvas: Canvas) {
                   val c = Store.cfg
                   val n = c.maskN
@@ -3683,39 +3814,31 @@ jobs:
                   val ys = FloatArray(n * 2)
                   pts(c, xs, ys)
                   val path = buildPath(c, xs, ys)
+
+                  // transformation en cours : le contour de la barre devient celui du masque
+                  val from = morphFrom
+                  if (from != null) {
+                      val to = outline(path, 0f, 0f)
+                      val t = morphT
+                      val mp = Path()
+                      for (i in 0 until K) {
+                          val x = from[i * 2] + (to[i * 2] - from[i * 2]) * t
+                          val y = from[i * 2 + 1] + (to[i * 2 + 1] - from[i * 2 + 1]) * t
+                          if (i == 0) mp.moveTo(x, y) else mp.lineTo(x, y)
+                      }
+                      mp.close()
+                      fill.pathEffect = null
+                      fill.color = mix(c.fill, c.maskColor, t)
+                      canvas.drawPath(mp, fill)
+                      if (c.maskBorderOn) drawBorder(canvas, c, mp, null, t)
+                      return
+                  }
+
                   fill.color = c.maskColor
                   val pe = if (!c.maskSmooth && c.maskRound > 0) CornerPathEffect(c.maskRound.toFloat()) else null
                   fill.pathEffect = pe
                   canvas.drawPath(path, fill)
-
-                  if (c.maskBorderOn) {
-                      val bw = c.maskBorderW.toFloat()
-                      val k = c.maskBorderN
-                      var shader: Shader? = null
-                      if (k > 1) {
-                          val x0 = (width / 2 + c.maskX - c.maskW / 2).toFloat()
-                          val w = maxOf(1, c.maskW).toFloat()
-                          val cols = IntArray(k + 1) { c.maskBorderColor(it % k) }
-                          val sh = (if (c.maskBorderDir == 0) phase else -phase) * w
-                          shader = LinearGradient(x0 + sh, 0f, x0 + sh + w, 0f, cols, null, Shader.TileMode.REPEAT)
-                      }
-                      val col = c.maskBorderColor(0)
-                      if (c.maskBorderNeon) {
-                          val g = maxOf(2, c.maskGlow).toFloat()
-                          glow.strokeWidth = bw + g * 0.5f
-                          glow.pathEffect = pe
-                          glow.shader = shader
-                          glow.color = col
-                          glow.maskFilter = BlurMaskFilter(g, BlurMaskFilter.Blur.NORMAL)
-                          canvas.drawPath(path, glow)
-                          canvas.drawPath(path, glow)
-                      }
-                      border.strokeWidth = bw
-                      border.pathEffect = pe
-                      border.shader = shader
-                      border.color = col
-                      canvas.drawPath(path, border)
-                  }
+                  if (c.maskBorderOn) drawBorder(canvas, c, path, pe, 1f)
 
                   if (Store.maskEdit) {
                       if (c.maskGuide) {
@@ -4277,6 +4400,8 @@ jobs:
               private var maskLp: WindowManager.LayoutParams? = null
               @Volatile
               private var fgPkg: String = ""
+              private var lastOff = false
+              private var lastMaskShow = true
               private var added = false
 
               private val displayListener = object : DisplayManager.DisplayListener {
@@ -4366,16 +4491,18 @@ jobs:
                   val sl = makeLp(10, 10, false)
                   val ml = makeLp(10, 10, false)
                   maskLp = ml
+                  lastOff = false
+                  lastMaskShow = true
                   barLp = bl
                   haloLp = hl
                   notchLp = nl
                   sideLp = sl
                   try {
+                      wm.addView(mask, ml)
                       wm.addView(bar, bl)
                       wm.addView(halo, hl)
                       wm.addView(notch, nl)
                       wm.addView(side, sl)
-                      wm.addView(mask, ml)
                       added = true
                   } catch (e: Exception) {
                       added = false
@@ -4481,7 +4608,7 @@ jobs:
                   val ml = maskLp
                   if (ml != null) {
                       ml.width = svc.resources.displayMetrics.widthPixels
-                      ml.height = c.maskY + c.maskH + MaskView.EXTRA
+                      ml.height = maxOf(c.maskY + c.maskH + MaskView.EXTRA, ((c.offY + c.height) * d).toInt() + 40)
                       ml.x = 0
                       ml.y = 0
                       try { wm.updateViewLayout(mask, ml) } catch (e: Exception) {}
@@ -4516,13 +4643,33 @@ jobs:
                   val maskShow = replace || (c.maskOn && c.maskWhenHidden && hidden)
                   val off = hidden || replace
 
-                  // fondu enchaîné entre la barre et le masque
+                  // transition entre la barre et le masque : la forme se transforme, ou simple fondu
                   val ms = c.maskFade.toLong()
-                  fadeTo(bar, !off, ms)
-                  fadeTo(halo, !off, ms)
-                  fadeTo(notch, !off, ms)
-                  fadeTo(side, !off, ms)
-                  fadeTo(mask, maskShow, ms)
+                  if (off != lastOff || maskShow != lastMaskShow) {
+                      val morph = c.maskMorph && ms > 0L
+                      if (morph && maskShow && !lastMaskShow && !lastOff && off) {
+                          startMorph(true, ms)
+                          fadeTo(bar, false, ms / 2, 0L)
+                          fadeTo(halo, false, ms, 0L)
+                          fadeTo(notch, false, ms, 0L)
+                          fadeTo(side, false, ms, 0L)
+                      } else if (morph && !maskShow && lastMaskShow && lastOff && !off) {
+                          startMorph(false, ms)
+                          fadeTo(bar, true, ms / 2, ms / 2)
+                          fadeTo(halo, true, ms / 2, ms / 2)
+                          fadeTo(notch, true, ms, 0L)
+                          fadeTo(side, true, ms, 0L)
+                      } else {
+                          mask.cancelMorph()
+                          fadeTo(bar, !off, ms, 0L)
+                          fadeTo(halo, !off, ms, 0L)
+                          fadeTo(notch, !off, ms, 0L)
+                          fadeTo(side, !off, ms, 0L)
+                          fadeTo(mask, maskShow, ms, 0L)
+                      }
+                      lastOff = off
+                      lastMaskShow = maskShow
+                  }
                   bar.syncAnim()
                   halo.syncAnim()
                   mask.syncAnim(maskShow)
@@ -4530,8 +4677,8 @@ jobs:
                   if (off || st == Display.STATE_OFF) engine.stop() else engine.start()
               }
 
-              /** Affiche ou cache une fenêtre avec un fondu (ms = 0 : instantané) */
-              private fun fadeTo(v: View, show: Boolean, ms: Long) {
+              /** Affiche ou cache une fenêtre avec un fondu (ms = 0 : instantané), éventuellement après un délai */
+              private fun fadeTo(v: View, show: Boolean, ms: Long, delay: Long) {
                   v.animate().cancel()
                   if (ms <= 0L) {
                       v.alpha = 1f
@@ -4543,16 +4690,31 @@ jobs:
                           v.alpha = 0f
                           v.visibility = View.VISIBLE
                       }
-                      v.animate().alpha(1f).setDuration(ms).start()
+                      v.animate().alpha(1f).setStartDelay(delay).setDuration(ms).start()
                   } else {
                       if (v.visibility != View.VISIBLE) return
-                      v.animate().alpha(0f).setDuration(ms).withEndAction {
+                      v.animate().alpha(0f).setStartDelay(delay).setDuration(ms).withEndAction {
                           v.visibility = View.INVISIBLE
                           v.alpha = 1f
                       }.start()
                   }
               }
 
+              /** Lance la transformation de la forme de la barre en celle du masque (toMask) ou l'inverse */
+              private fun startMorph(toMask: Boolean, ms: Long) {
+                  val c = Store.cfg
+                  val w = c.width * d
+                  val h = c.height * d
+                  val dx = svc.resources.displayMetrics.widthPixels / 2f + c.offX * d - w / 2f
+                  val dy = c.offY * d
+                  val from = MaskView.outline(Shapes.build(c, w, h, d, 0f), dx, dy)
+                  mask.animate().cancel()
+                  mask.alpha = 1f
+                  mask.visibility = View.VISIBLE
+                  mask.startMorph(from, toMask, ms) {
+                      if (!toMask) mask.visibility = View.INVISIBLE
+                  }
+              }
               /** Appelé quand l'appli au premier plan change */
               fun setForeground(pkg: String) {
                   if (pkg == fgPkg) return
@@ -5098,6 +5260,7 @@ jobs:
                   })
                   b.addView(ui.toggle("Aussi quand la barre est cachée (verrouillage, AOD, paysage)", { c.maskWhenHidden }, { c.maskWhenHidden = it }))
                   b.addView(ui.slider("Durée de la transition barre ↔ masque (0 = instantané)", 0, 1000, { c.maskFade }, { c.maskFade = it }, " ms"))
+                  b.addView(ui.toggle("Transformer la forme pendant la transition (morphing)", { c.maskMorph }, { c.maskMorph = it }))
 
                   b.addView(ui.section("Taille et position (pixels)"))
                   b.addView(ui.slider("Largeur", 1, sw, { c.maskW }, { c.maskW = it }, " px"))
@@ -5939,8 +6102,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 29
-                  versionName = "2.9.0"
+                  versionCode = 30
+                  versionName = "3.0.0"
               }
 
               compileOptions {
