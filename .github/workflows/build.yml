@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 2.8.0 (${{ github.sha }})
+run-name: Build APK 2.9.0 (${{ github.sha }})
 
 on:
   push:
@@ -1181,6 +1181,13 @@ jobs:
                   get() = gb("mkdt", true)
                   set(v) {
                       p("mkdt", v)
+                  }
+
+              /** Durée du fondu entre la barre et le masque, en millisecondes (0 = instantané) */
+              var maskFade: Int
+                  get() = gi("mkfd", 250)
+                  set(v) {
+                      p("mkfd", v)
                   }
 
               fun maskBorderColor(i: Int): Int {
@@ -3598,9 +3605,9 @@ jobs:
               }
 
               /** Lance ou arrête le défilement des couleurs de la bordure selon les réglages */
-              fun syncAnim() {
+              fun syncAnim(show: Boolean) {
                   val c = Store.cfg
-                  val need = visibility == View.VISIBLE && c.maskBorderOn && c.maskBorderRot && c.maskBorderN > 1
+                  val need = show && c.maskBorderOn && c.maskBorderRot && c.maskBorderN > 1
                   if (!need) {
                       anim?.cancel()
                       anim = null
@@ -4509,17 +4516,41 @@ jobs:
                   val maskShow = replace || (c.maskOn && c.maskWhenHidden && hidden)
                   val off = hidden || replace
 
-                  val vis = if (off) View.INVISIBLE else View.VISIBLE
-                  bar.visibility = vis
-                  halo.visibility = vis
-                  notch.visibility = vis
-                  side.visibility = vis
-                  mask.visibility = if (maskShow) View.VISIBLE else View.INVISIBLE
+                  // fondu enchaîné entre la barre et le masque
+                  val ms = c.maskFade.toLong()
+                  fadeTo(bar, !off, ms)
+                  fadeTo(halo, !off, ms)
+                  fadeTo(notch, !off, ms)
+                  fadeTo(side, !off, ms)
+                  fadeTo(mask, maskShow, ms)
                   bar.syncAnim()
                   halo.syncAnim()
-                  mask.syncAnim()
+                  mask.syncAnim(maskShow)
 
                   if (off || st == Display.STATE_OFF) engine.stop() else engine.start()
+              }
+
+              /** Affiche ou cache une fenêtre avec un fondu (ms = 0 : instantané) */
+              private fun fadeTo(v: View, show: Boolean, ms: Long) {
+                  v.animate().cancel()
+                  if (ms <= 0L) {
+                      v.alpha = 1f
+                      v.visibility = if (show) View.VISIBLE else View.INVISIBLE
+                      return
+                  }
+                  if (show) {
+                      if (v.visibility != View.VISIBLE) {
+                          v.alpha = 0f
+                          v.visibility = View.VISIBLE
+                      }
+                      v.animate().alpha(1f).setDuration(ms).start()
+                  } else {
+                      if (v.visibility != View.VISIBLE) return
+                      v.animate().alpha(0f).setDuration(ms).withEndAction {
+                          v.visibility = View.INVISIBLE
+                          v.alpha = 1f
+                      }.start()
+                  }
               }
 
               /** Appelé quand l'appli au premier plan change */
@@ -5066,6 +5097,7 @@ jobs:
                       }
                   })
                   b.addView(ui.toggle("Aussi quand la barre est cachée (verrouillage, AOD, paysage)", { c.maskWhenHidden }, { c.maskWhenHidden = it }))
+                  b.addView(ui.slider("Durée de la transition barre ↔ masque (0 = instantané)", 0, 1000, { c.maskFade }, { c.maskFade = it }, " ms"))
 
                   b.addView(ui.section("Taille et position (pixels)"))
                   b.addView(ui.slider("Largeur", 1, sw, { c.maskW }, { c.maskW = it }, " px"))
@@ -5907,8 +5939,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 28
-                  versionName = "2.8.0"
+                  versionCode = 29
+                  versionName = "2.9.0"
               }
 
               compileOptions {
