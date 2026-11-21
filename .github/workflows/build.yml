@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 3.0.0 (${{ github.sha }})
+run-name: Build APK 3.1.0 (${{ github.sha }})
 
 on:
   push:
@@ -443,7 +443,7 @@ jobs:
 
               /** Rectangle uniquement */
               var shape: Int
-                  get() = 0
+                  get() = if (gb("shfree", false)) 8 else 0
                   set(v) {
                       p("shape", v)
                   }
@@ -1197,6 +1197,94 @@ jobs:
                       p("mkmp", v)
                   }
 
+              /** Forme libre à points pour la barre de statut (sinon rectangle) */
+              var shapeFree: Boolean
+                  get() = gb("shfree", false)
+                  set(v) {
+                      p("shfree", v)
+                  }
+
+              /** ---- Formes libres à points (barre de statut, pastilles) : réglages rangés sous un préfixe ---- */
+              fun psInt(pre: String, k: String, d: Int): Int = j.optInt(pre + k, d)
+
+              fun psSetInt(pre: String, k: String, v: Int) {
+                  p(pre + k, v)
+              }
+
+              fun psBool(pre: String, k: String, d: Boolean): Boolean = j.optBoolean(pre + k, d)
+
+              fun psSetBool(pre: String, k: String, v: Boolean) {
+                  p(pre + k, v)
+              }
+
+              fun psStr(pre: String, k: String, d: String): String = j.optString(pre + k, d)
+
+              fun psSetStr(pre: String, k: String, v: String) {
+                  p(pre + k, v)
+              }
+
+              /** Nombre de points sur chaque bord */
+              fun psN(pre: String): Int = psInt(pre, "n", 7).coerceIn(2, 25)
+
+              /** Décalage [dx, dy] en pixels du point i du bord du haut (top = true) ou du bas */
+              fun psPt(pre: String, top: Boolean, i: Int): IntArray {
+                  val a = j.optJSONArray(pre + (if (top) "top" else "bot"))
+                  if (a == null || a.length() < i * 2 + 2) return intArrayOf(0, 0)
+                  return intArrayOf(a.optInt(i * 2, 0), a.optInt(i * 2 + 1, 0))
+              }
+
+              fun setPsPt(pre: String, top: Boolean, i: Int, dx: Int, dy: Int) {
+                  val k = pre + (if (top) "top" else "bot")
+                  val old = j.optJSONArray(k)
+                  val n = maxOf(25, i + 1)
+                  val a = JSONArray()
+                  for (q in 0 until n * 2) a.put(if (old != null) old.optInt(q, 0) else 0)
+                  a.put(i * 2, dx)
+                  a.put(i * 2 + 1, dy)
+                  j.put(k, a)
+                  Store.rev++
+              }
+
+              fun resetPsPts(pre: String) {
+                  j.remove(pre + "top")
+                  j.remove(pre + "bot")
+                  Store.rev++
+              }
+
+              fun mirrorPsPts(pre: String) {
+                  val n = psN(pre)
+                  for (top in listOf(true, false)) {
+                      for (i in 0 until n / 2) {
+                          val q = psPt(pre, top, i)
+                          setPsPt(pre, top, n - 1 - i, -q[0], q[1])
+                      }
+                  }
+              }
+
+              /** Efface tous les réglages d'un préfixe (réinitialise une pastille) */
+              fun psClear(pre: String) {
+                  val ks = ArrayList<String>()
+                  val it = j.keys()
+                  while (it.hasNext()) {
+                      val k = it.next()
+                      if (k.startsWith(pre)) ks.add(k)
+                  }
+                  for (k in ks) j.remove(k)
+                  Store.rev++
+              }
+
+              /** Position par défaut des pastilles : réparties sur deux rangées */
+              fun paX(i: Int): Int = psInt("pa" + i + "_", "x", ((i % 5) - 2) * 130)
+
+              fun paY(i: Int): Int = psInt("pa" + i + "_", "y", 120 + (i / 5) * 100)
+
+              /** Position d'une fine barre : 0 = en bas, 1 = côté gauche (verticale), 2 = côté droit (verticale) */
+              fun gaugePos(i: Int): Int = gaugeInt(i, "pos", when (i) {
+                  1 -> 0
+                  2 -> 1
+                  3 -> 2
+                  else -> 0
+              }).coerceIn(0, 2)
               fun maskBorderColor(i: Int): Int {
                   val defs = intArrayOf(0xFF18FFFF.toInt(), 0xFFFF4081.toInt(), 0xFFE040FB.toInt(), 0xFF00E676.toInt(), 0xFFFFEA00.toInt(), 0xFFFF9100.toInt(), 0xFFFFFFFF.toInt())
                   return gi("mkbc" + i, defs[i.coerceIn(0, 6)])
@@ -1316,6 +1404,20 @@ jobs:
 
               @Volatile
               var maskSelIdx = 0
+
+              /** Préfixe de la forme à points en cours de réglage ("bs_" = barre, "paN_" = pastille), vide sinon */
+              @Volatile
+              var psEdit = ""
+
+              @Volatile
+              var psSelTop = true
+
+              @Volatile
+              var psSelIdx = 0
+
+              /** Pastille en cours de réglage (0 à 9) */
+              @Volatile
+              var paSel = 0
               var cfg: Config = Config(JSONObject())
               private var sp: SharedPreferences? = null
 
@@ -1519,6 +1621,7 @@ jobs:
                       3 -> Path().apply { addOval(RectF(0f, 0f, w, h), Path.Direction.CW) }
                       4 -> flared(w, h, c.flare * d, c.radius * d)
                       5 -> wave(c, w, h, d, phase)
+                      8 -> PointShape.path(c, "bs_", 0f, 0f, w, h)
                       6 -> blob(w / 2f, h / 2f, w / 2f, h / 2f, max(4, c.lobes), c.rough / 100f * 0.7f, Random(c.seed.toLong()))
                       else -> multi(c, w, h, d)
                   }
@@ -2594,8 +2697,8 @@ jobs:
               private val animPaint = Paint(Paint.ANTI_ALIAS_FLAG)
               private val gaugePaint = Paint(Paint.ANTI_ALIAS_FLAG)
               private var prevSnap: EvSnap? = null
-              private val gFrac = floatArrayOf(0f, 0f)
-              private val gCol = intArrayOf(Pal.GREEN, Pal.GREEN)
+              private val gFrac = floatArrayOf(0f, 0f, 0f, 0f)
+              private val gCol = intArrayOf(Pal.GREEN, Pal.GREEN, Pal.GREEN, Pal.GREEN)
               private val gMods = HashMap<Int, Mod>()
 
               private var path = Path()
@@ -2620,7 +2723,7 @@ jobs:
                       if (mod.showLed && (mod.ledBlink || v.blink || mod.ledStyle == 12)) needFast = true
                   }
                   vals = m
-                  for (gi in 1..2) {
+                  for (gi in 1..4) {
                       if (c.gaugeBool(gi, "on", gi == 1)) {
                           computeGauge(gi)
                           if (c.gaugeInt(gi, "src", if (gi == 1) 0 else 1) == 9) needFast = true
@@ -2661,40 +2764,72 @@ jobs:
               private fun drawGauge(canvas: Canvas, c: Config, i: Int, w: Float, h: Float) {
                   if (!c.gaugeBool(i, "on", i == 1)) return
                   val th = c.gaugeInt(i, "th", 2) * d
-                  val top = c.gaugeInt(i, "pos", if (i == 1) 0 else 1) == 1
-                  val y0 = if (top) 0f else h - th
+                  val pos = c.gaugePos(i)
                   val col = if (c.gaugeBool(i, "auto", true)) gCol[i - 1] else c.gaugeInt(i, "col", Pal.CYAN)
                   val inset = c.gaugeInt(i, "inset", 0) * d
-                  val x0 = inset
-                  val x1 = w - inset
-                  val len = x1 - x0
-                  if (len <= 1f) return
+                  val from = c.gaugeInt(i, "from", 0)
+                  val track = c.gaugeBool(i, "trk", true)
                   gaugePaint.shader = null
-                  if (c.gaugeBool(i, "trk", true)) {
-                      gaugePaint.color = (col and 0x00FFFFFF) or (0x33 shl 24)
-                      rect.set(x0, y0, x1, y0 + th)
+                  if (pos == 0) {
+                      // horizontale, collée au bas de la barre
+                      val y0 = h - th
+                      val x0 = inset
+                      val x1 = w - inset
+                      val len = x1 - x0
+                      if (len <= 1f) return
+                      if (track) {
+                          gaugePaint.color = (col and 0x00FFFFFF) or (0x33 shl 24)
+                          rect.set(x0, y0, x1, y0 + th)
+                          canvas.drawRoundRect(rect, th / 2f, th / 2f, gaugePaint)
+                      }
+                      val fl = len * gFrac[i - 1]
+                      if (fl < 0.5f) return
+                      val a: Float
+                      val b: Float
+                      if (from == 1) {
+                          a = x0 + (len - fl) / 2f
+                          b = x0 + (len + fl) / 2f
+                      } else if (from == 2) {
+                          a = x1 - fl
+                          b = x1
+                      } else {
+                          a = x0
+                          b = x0 + fl
+                      }
+                      gaugePaint.color = col
+                      rect.set(a, y0, b, y0 + th)
+                      canvas.drawRoundRect(rect, th / 2f, th / 2f, gaugePaint)
+                  } else {
+                      // verticale, collée au côté gauche (1) ou droit (2) de la barre
+                      val x0 = if (pos == 1) 0f else w - th
+                      val y0 = inset
+                      val y1 = h - inset
+                      val len = y1 - y0
+                      if (len <= 1f) return
+                      if (track) {
+                          gaugePaint.color = (col and 0x00FFFFFF) or (0x33 shl 24)
+                          rect.set(x0, y0, x0 + th, y1)
+                          canvas.drawRoundRect(rect, th / 2f, th / 2f, gaugePaint)
+                      }
+                      val fl = len * gFrac[i - 1]
+                      if (fl < 0.5f) return
+                      val a: Float
+                      val b: Float
+                      if (from == 1) {
+                          a = y0 + (len - fl) / 2f
+                          b = y0 + (len + fl) / 2f
+                      } else if (from == 2) {
+                          a = y0
+                          b = y0 + fl
+                      } else {
+                          a = y1 - fl
+                          b = y1
+                      }
+                      gaugePaint.color = col
+                      rect.set(x0, a, x0 + th, b)
                       canvas.drawRoundRect(rect, th / 2f, th / 2f, gaugePaint)
                   }
-                  val fl = len * gFrac[i - 1]
-                  if (fl < 0.5f) return
-                  val from = c.gaugeInt(i, "from", 0)
-                  val a: Float
-                  val b: Float
-                  if (from == 1) {
-                      a = x0 + (len - fl) / 2f
-                      b = x0 + (len + fl) / 2f
-                  } else if (from == 2) {
-                      a = x1 - fl
-                      b = x1
-                  } else {
-                      a = x0
-                      b = x0 + fl
-                  }
-                  gaugePaint.color = col
-                  rect.set(a, y0, b, y0 + th)
-                  canvas.drawRoundRect(rect, th / 2f, th / 2f, gaugePaint)
               }
-
               // ---------- animations ----------
 
               private fun addAnim(key: String, color: Int, kind: Int, dir: Int) {
@@ -3243,6 +3378,8 @@ jobs:
                   // fines barres de progression, puis animations
                   drawGauge(canvas, c, 1, w, h)
                   drawGauge(canvas, c, 2, w, h)
+                  drawGauge(canvas, c, 3, w, h)
+                  drawGauge(canvas, c, 4, w, h)
                   if (anims.isNotEmpty()) drawAnims(canvas, c, w, h)
 
                   // trou de l'appareil photo : rien derrière
@@ -3250,6 +3387,17 @@ jobs:
                       canvas.drawCircle(hxReal, hy, hr0, clearPaint)
                   }
                   canvas.restoreToCount(sc)
+                  if (Store.psEdit == "bs_" && c.shape == 8) {
+                      val pn = c.psN("bs_")
+                      val pxs = FloatArray(pn * 2)
+                      val pys = FloatArray(pn * 2)
+                      PointShape.pts(c, "bs_", 0f, 0f, w, h, pxs, pys)
+                      val pi = Store.psSelIdx.coerceIn(0, pn - 1)
+                      val pq = if (Store.psSelTop) pi else pn * 2 - 1 - pi
+                      gaugePaint.shader = null
+                      gaugePaint.color = 0xFFFF1744.toInt()
+                      canvas.drawCircle(pxs[pq], pys[pq], 7f, gaugePaint)
+                  }
                   if (anims.isNotEmpty()) postInvalidateOnAnimation()
               }
           }
@@ -3855,6 +4003,176 @@ jobs:
           }
           KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/PointShape.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.graphics.CornerPathEffect
+          import android.graphics.Paint
+          import android.graphics.Path
+
+          /** Formes libres à points : n points sur le bord du haut et n sur le bord du bas, décalables au pixel près */
+          object PointShape {
+              /** Positions des points : bord du haut de gauche à droite, puis bord du bas de droite à gauche */
+              fun pts(c: Config, pre: String, x0: Float, y0: Float, w: Float, h: Float, xs: FloatArray, ys: FloatArray) {
+                  val n = c.psN(pre)
+                  for (i in 0 until n) {
+                      val fx = Math.round(w * i / (n - 1)).toFloat()
+                      val t = c.psPt(pre, true, i)
+                      xs[i] = x0 + fx + t[0]
+                      ys[i] = y0 + t[1]
+                      val b = c.psPt(pre, false, i)
+                      val k = n * 2 - 1 - i
+                      xs[k] = x0 + fx + b[0]
+                      ys[k] = y0 + h + b[1]
+                  }
+              }
+
+              fun path(c: Config, pre: String, x0: Float, y0: Float, w: Float, h: Float): Path {
+                  val n = c.psN(pre)
+                  val m = n * 2
+                  val xs = FloatArray(m)
+                  val ys = FloatArray(m)
+                  pts(c, pre, x0, y0, w, h, xs, ys)
+                  val smooth = c.psBool(pre, "sm", false)
+                  val p = Path()
+                  p.moveTo(xs[0], ys[0])
+                  if (!smooth) {
+                      for (i in 1 until m) p.lineTo(xs[i], ys[i])
+                  } else {
+                      for (i in 0 until m) {
+                          val i0 = (i - 1 + m) % m
+                          val i2 = (i + 1) % m
+                          val i3 = (i + 2) % m
+                          p.cubicTo(
+                              xs[i] + (xs[i2] - xs[i0]) / 6f, ys[i] + (ys[i2] - ys[i0]) / 6f,
+                              xs[i2] - (xs[i3] - xs[i]) / 6f, ys[i2] - (ys[i3] - ys[i]) / 6f,
+                              xs[i2], ys[i2]
+                          )
+                      }
+                  }
+                  p.close()
+                  val r = c.psInt(pre, "rd", 0)
+                  if (!smooth && r > 0) {
+                      val q = Paint()
+                      q.pathEffect = CornerPathEffect(r.toFloat())
+                      val out = Path()
+                      q.getFillPath(p, out)
+                      return out
+                  }
+                  return p
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/PastilleView.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.content.Context
+          import android.graphics.Canvas
+          import android.graphics.Paint
+          import android.graphics.Path
+          import android.graphics.RectF
+          import android.os.BatteryManager
+          import android.view.View
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+
+          /** Pastille indépendante : une petite forme (ovale, arrondie ou libre à points) avec un contenu, placée où on veut */
+          class PastilleView(ctx: Context, private val idx: Int) : View(ctx) {
+              private val pre = "pa" + idx + "_"
+
+              /** Coin haut-gauche de la forme dans la fenêtre */
+              var ox = 0f
+              var oy = 0f
+
+              private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val stroke = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val txt = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val d = ctx.resources.displayMetrics.density
+              private val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+              private val tick = Runnable { invalidate() }
+
+              init {
+                  fill.style = Paint.Style.FILL
+                  stroke.style = Paint.Style.STROKE
+                  txt.textAlign = Paint.Align.CENTER
+                  txt.isFakeBoldText = true
+                  dot.style = Paint.Style.FILL
+                  dot.color = 0xFFFF1744.toInt()
+              }
+
+              private fun content(c: Config): String {
+                  return when (c.psInt(pre, "ct", 0)) {
+                      1 -> fmt.format(Date())
+                      2 -> try {
+                          val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                          bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).toString() + "%"
+                      } catch (e: Exception) {
+                          ""
+                      }
+                      3 -> c.psStr(pre, "tx", "")
+                      else -> ""
+                  }
+              }
+
+              override fun onDraw(canvas: Canvas) {
+                  val c = Store.cfg
+                  val w = c.psInt(pre, "w", 120).toFloat()
+                  val h = c.psInt(pre, "h", 60).toFloat()
+                  val kind = c.psInt(pre, "shape", 1)
+                  val box = RectF(ox, oy, ox + w, oy + h)
+                  val path = Path()
+                  if (kind == 0) {
+                      path.addOval(box, Path.Direction.CW)
+                  } else if (kind == 1) {
+                      val r = c.psInt(pre, "rad", 100).coerceIn(0, 100) / 100f * minOf(w, h) / 2f
+                      path.addRoundRect(box, r, r, Path.Direction.CW)
+                  } else {
+                      path.set(PointShape.path(c, pre, ox, oy, w, h))
+                  }
+                  fill.color = c.psInt(pre, "fill", 0xFF1C1C1E.toInt())
+                  canvas.drawPath(path, fill)
+                  val bw = c.psInt(pre, "bw", 0)
+                  if (bw > 0) {
+                      stroke.color = c.psInt(pre, "bc", 0xFFFFFFFF.toInt())
+                      stroke.strokeWidth = bw.toFloat()
+                      canvas.drawPath(path, stroke)
+                  }
+
+                  val t = content(c)
+                  if (t.isNotEmpty()) {
+                      txt.color = c.psInt(pre, "tc", 0xFFFFFFFF.toInt())
+                      txt.textSize = c.psInt(pre, "ts", 16) * d
+                      val tw = txt.measureText(t)
+                      if (tw > w * 0.9f && tw > 0f) txt.textSize = txt.textSize * w * 0.9f / tw
+                      canvas.drawText(t, ox + w / 2f, oy + h / 2f - (txt.ascent() + txt.descent()) / 2f, txt)
+                  }
+
+                  if (Store.psEdit == pre && kind == 2) {
+                      val n = c.psN(pre)
+                      val xs = FloatArray(n * 2)
+                      val ys = FloatArray(n * 2)
+                      PointShape.pts(c, pre, ox, oy, w, h, xs, ys)
+                      val i = Store.psSelIdx.coerceIn(0, n - 1)
+                      val q = if (Store.psSelTop) i else n * 2 - 1 - i
+                      canvas.drawCircle(xs[q], ys[q], 7f, dot)
+                  }
+
+                  // l'heure et la batterie se rafraîchissent toutes les secondes tant que la pastille est visible
+                  removeCallbacks(tick)
+                  val ct = c.psInt(pre, "ct", 0)
+                  if (ct == 1 || ct == 2) postDelayed(tick, 1000)
+              }
+
+              override fun onDetachedFromWindow() {
+                  removeCallbacks(tick)
+                  super.onDetachedFromWindow()
+              }
+          }
+          KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
           cat > app/src/main/java/com/example/island/ColorPicker.kt <<'KOTLIN_EOF'
           package com.example.island
 
@@ -4402,6 +4720,8 @@ jobs:
               private var fgPkg: String = ""
               private var lastOff = false
               private var lastMaskShow = true
+              private val pas = Array(10) { PastilleView(svc, it) }
+              private val pasLp = Array(10) { WindowManager.LayoutParams() }
               private var added = false
 
               private val displayListener = object : DisplayManager.DisplayListener {
@@ -4497,12 +4817,19 @@ jobs:
                   haloLp = hl
                   notchLp = nl
                   sideLp = sl
+                  for (i in 0 until 10) {
+                      val pl = makeLp(1, 1, false)
+                      pl.gravity = Gravity.TOP or Gravity.LEFT
+                      pasLp[i] = pl
+                      pas[i].visibility = View.INVISIBLE
+                  }
                   try {
                       wm.addView(mask, ml)
                       wm.addView(bar, bl)
                       wm.addView(halo, hl)
                       wm.addView(notch, nl)
                       wm.addView(side, sl)
+                      for (i in 0 until 10) wm.addView(pas[i], pasLp[i])
                       added = true
                   } catch (e: Exception) {
                       added = false
@@ -4528,6 +4855,9 @@ jobs:
                       try { wm.removeView(notch) } catch (e: Exception) {}
                       try { wm.removeView(side) } catch (e: Exception) {}
                       try { wm.removeView(mask) } catch (e: Exception) {}
+                      for (i in 0 until 10) {
+                          try { wm.removeView(pas[i]) } catch (e: Exception) {}
+                      }
                       try { dm.unregisterDisplayListener(displayListener) } catch (e: Exception) {}
                       try { svc.unregisterReceiver(receiver) } catch (e: Exception) {}
                       added = false
@@ -4604,6 +4934,32 @@ jobs:
                       side.post { side.invalidate() }
                   }
 
+                  // pastilles : une fenêtre par pastille, juste assez grande pour la forme et ses points
+                  val dmx = svc.resources.displayMetrics
+                  val sw = dmx.widthPixels
+                  val sh = dmx.heightPixels
+                  for (i in 0 until 10) {
+                      val pre = "pa" + i + "_"
+                      val pw = c.psInt(pre, "w", 120)
+                      val ph = c.psInt(pre, "h", 60)
+                      val left = sw / 2 + c.paX(i) - pw / 2
+                      val top = c.paY(i)
+                      val mg = 40
+                      val wl = maxOf(0, left - mg)
+                      val wt = maxOf(0, top - mg)
+                      val wr = minOf(sw, left + pw + mg)
+                      val wb = minOf(sh, top + ph + mg)
+                      val pl = pasLp[i]
+                      pl.x = wl
+                      pl.y = wt
+                      pl.width = maxOf(1, wr - wl)
+                      pl.height = maxOf(1, wb - wt)
+                      pas[i].ox = (left - wl).toFloat()
+                      pas[i].oy = (top - wt).toFloat()
+                      try { wm.updateViewLayout(pas[i], pl) } catch (e: Exception) {}
+                      val pv = pas[i]
+                      pv.post { pv.invalidate() }
+                  }
                   // masque : fenêtre de la largeur de l'écran, la forme est dessinée en pixels réels à l'intérieur
                   val ml = maskLp
                   if (ml != null) {
@@ -4669,6 +5025,12 @@ jobs:
                       }
                       lastOff = off
                       lastMaskShow = maskShow
+                  }
+                  // pastilles : visibles si activées (ou en cours de réglage), sauf quand la barre est cachée
+                  for (i in 0 until 10) {
+                      val pre = "pa" + i + "_"
+                      val show = Store.psEdit == pre || (c.psBool(pre, "on", false) && !hidden && !(c.psBool(pre, "hm", false) && replace))
+                      pas[i].visibility = if (show) View.VISIBLE else View.INVISIBLE
                   }
                   bar.syncAnim()
                   halo.syncAnim()
@@ -5063,7 +5425,7 @@ jobs:
               private lateinit var tabRow: LinearLayout
               private var tab = 0
               private val handler = Handler(Looper.getMainLooper())
-              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G", "📏 Jauges", "✨ Animations", "🕳️ Masque")
+              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G", "📏 Jauges", "✨ Animations", "🕳️ Masque", "🔵 Pastilles")
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -5131,10 +5493,15 @@ jobs:
                   refreshViews()
                   if (tab == 4) showTab(4)
                   if (tab == 9) setMaskEdit(true)
+                  if (tab == 0 || tab == 10) showTab(tab)
               }
 
               override fun onPause() {
                   setMaskEdit(false)
+                  if (Store.psEdit.isNotEmpty()) {
+                      Store.psEdit = ""
+                      IslandAccessibilityService.instance?.reload()
+                  }
                   engine.stop()
                   super.onPause()
               }
@@ -5303,6 +5670,8 @@ jobs:
               private fun showTab(i: Int) {
                   tab = i
                   setMaskEdit(i == 9)
+                  val oldEdit = Store.psEdit
+                  Store.psEdit = ""
                   for (k in 0 until tabRow.childCount) ui.styleChip(tabRow.getChildAt(k) as TextView, k == i)
                   content.removeAllViews()
                   val v = when (i) {
@@ -5315,9 +5684,11 @@ jobs:
                       7 -> scroll(tabGauges())
                       8 -> scroll(tabAnim())
                       9 -> scroll(tabMask())
+                      10 -> scroll(tabPas())
                       else -> scroll(tabOptions())
                   }
                   content.addView(v, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
+                  if (Store.psEdit != oldEdit) IslandAccessibilityService.instance?.reload()
               }
 
               /** Reconstruit l'onglet courant en gardant la position de défilement */
@@ -5446,12 +5817,18 @@ jobs:
               private fun tabShape(): View {
                   val c = Store.cfg
                   val b = ui.vbox()
+                  b.addView(ui.section("Forme de la barre"))
+                  b.addView(ui.chips(null, listOf("▭ Rectangle", "✏️ Forme libre (points)"), { if (c.shapeFree) 1 else 0 }, { c.shapeFree = it == 1 }) { rebuild() })
                   b.addView(ui.section("Taille et position"))
                   b.addView(ui.slider("Largeur", 60, 420, { c.width }, { c.width = it }, " dp"))
                   b.addView(ui.slider("Hauteur", 14, 120, { c.height }, { c.height = it }, " dp"))
                   b.addView(ui.slider("Décalage horizontal", -250, 250, { c.offX }, { c.offX = it }, " dp"))
                   b.addView(ui.slider("Décollée du haut", 0, 80, { c.offY }, { c.offY = it }, " dp"))
 
+                  if (c.shapeFree) {
+                      b.addView(ui.hint("La forme est dessinée dans la fenêtre de la barre (largeur et hauteur ci-dessus) : les points ne peuvent pas la dépasser. Pour creuser la forme, descends les points du haut ou monte ceux du bas."))
+                      b.addView(pointEditor("bs_"))
+                  }
                   return b
               }
 
@@ -5587,21 +5964,118 @@ jobs:
 
               // ---------------------------------------------------------------- JAUGES
 
+              /** Éditeur de contour à points (barre de statut, pastilles) : tout en pixels, avec un point rouge sur le point réglé */
+              private fun pointEditor(pre: String): View {
+                  val c = Store.cfg
+                  val b = ui.vbox()
+                  val n = c.psN(pre)
+                  val sel = Store.psSelIdx.coerceIn(0, n - 1)
+                  Store.psSelIdx = sel
+                  Store.psEdit = pre
+                  val ns = listOf(2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 25)
+                  b.addView(ui.section("Contour à points"))
+                  b.addView(ui.hint("Chaque bord (haut et bas) a ses points, répartis de gauche à droite. Décale-les au pixel près : − et + avancent d'un pixel, et un point rouge montre celui que tu règles."))
+                  b.addView(ui.chips("Nombre de points sur chaque bord", ns.map { it.toString() },
+                      { val k = ns.indexOf(c.psN(pre)); if (k < 0) 5 else k }, { c.psSetInt(pre, "n", ns[it]) }) { rebuild() })
+                  b.addView(ui.chips(null, listOf("Angles droits", "Courbe lisse"), { if (c.psBool(pre, "sm", false)) 1 else 0 }, { c.psSetBool(pre, "sm", it == 1) }) { rebuild() })
+                  if (!c.psBool(pre, "sm", false)) {
+                      b.addView(ui.slider("Arrondi des angles", 0, 200, { c.psInt(pre, "rd", 0) }, { c.psSetInt(pre, "rd", it) }, " px"))
+                  }
+                  b.addView(ui.chips("Bord", listOf("⬆️ Haut", "⬇️ Bas"), { if (Store.psSelTop) 0 else 1 }, { Store.psSelTop = it == 0 }) { rebuild() })
+                  b.addView(ui.chips("Point (de gauche à droite)", (1..n).map { it.toString() }, { sel }, { Store.psSelIdx = it }) { rebuild() })
+                  val top = Store.psSelTop
+                  b.addView(ui.slider("Décalage horizontal du point", -400, 400,
+                      { c.psPt(pre, top, sel)[0] }, { c.setPsPt(pre, top, sel, it, c.psPt(pre, top, sel)[1]) }, " px"))
+                  b.addView(ui.slider("Décalage vertical du point", -300, 300,
+                      { c.psPt(pre, top, sel)[1] }, { c.setPsPt(pre, top, sel, c.psPt(pre, top, sel)[0], it) }, " px"))
+                  b.addView(ui.buttons(listOf("↔️ Miroir gauche → droite", "♻️ Points à zéro")) { i ->
+                      if (i == 0) c.mirrorPsPts(pre) else c.resetPsPts(pre)
+                      commit()
+                      rebuild()
+                  })
+                  return b
+              }
+
+              // ---------------------------------------------------------------- PASTILLES
+
+              private fun tabPas(): View {
+                  val c = Store.cfg
+                  val b = ui.vbox()
+                  val dmx = resources.displayMetrics
+                  val sw = dmx.widthPixels
+                  val sh = dmx.heightPixels
+                  val sel = Store.paSel.coerceIn(0, 9)
+                  val pre = "pa" + sel + "_"
+                  Store.psEdit = pre
+                  var active = 0
+                  for (i in 0 until 10) if (c.psBool("pa" + i + "_", "on", false)) active++
+
+                  b.addView(ui.section("Pastilles indépendantes"))
+                  b.addView(ui.hint(active.toString() + " pastille(s) active(s) sur 10. Choisis un numéro et règle-le : la pastille apparaît en direct sur ton écran, même éteinte, tant que cet onglet est ouvert."))
+                  b.addView(ui.chips("Pastille n°", (1..10).map { it.toString() }, { sel }, { Store.paSel = it }) { rebuild() })
+                  b.addView(ui.toggle("Activée", { c.psBool(pre, "on", false) }, { c.psSetBool(pre, "on", it) }) { rebuild() })
+
+                  b.addView(ui.section("Taille et position (pixels)"))
+                  b.addView(ui.slider("Largeur", 4, sw, { c.psInt(pre, "w", 120) }, { c.psSetInt(pre, "w", it) }, " px"))
+                  b.addView(ui.slider("Hauteur", 4, sw, { c.psInt(pre, "h", 60) }, { c.psSetInt(pre, "h", it) }, " px"))
+                  b.addView(ui.slider("Décalage horizontal (0 = centre de l'écran)", -sw / 2, sw / 2, { c.paX(sel) }, { c.psSetInt(pre, "x", it) }, " px"))
+                  b.addView(ui.slider("Distance depuis le haut", 0, sh, { c.paY(sel) }, { c.psSetInt(pre, "y", it) }, " px"))
+
+                  b.addView(ui.section("Forme"))
+                  b.addView(ui.chips(null, listOf("● Ovale", "▢ Arrondi", "✏️ Libre (points)"), { c.psInt(pre, "shape", 1) }, { c.psSetInt(pre, "shape", it) }) { rebuild() })
+                  val kind = c.psInt(pre, "shape", 1)
+                  if (kind == 1) {
+                      b.addView(ui.slider("Arrondi (0 = carré, 100 = rond ou pilule)", 0, 100, { c.psInt(pre, "rad", 100) }, { c.psSetInt(pre, "rad", it) }, " %"))
+                  }
+                  if (kind == 2) {
+                      b.addView(pointEditor(pre))
+                  }
+
+                  b.addView(ui.section("Couleurs"))
+                  b.addView(ui.colorRow("Fond (avec transparence)", { c.psInt(pre, "fill", 0xFF1C1C1E.toInt()) }, { c.psSetInt(pre, "fill", it) }))
+                  b.addView(ui.slider("Épaisseur de la bordure", 0, 20, { c.psInt(pre, "bw", 0) }, { c.psSetInt(pre, "bw", it) }, " px") )
+                  if (c.psInt(pre, "bw", 0) > 0) {
+                      b.addView(ui.colorRow("Couleur de la bordure", { c.psInt(pre, "bc", 0xFFFFFFFF.toInt()) }, { c.psSetInt(pre, "bc", it) }))
+                  }
+
+                  b.addView(ui.section("Contenu"))
+                  b.addView(ui.chips(null, listOf("Vide", "🕐 Heure", "🔋 Batterie", "✍️ Texte"), { c.psInt(pre, "ct", 0) }, { c.psSetInt(pre, "ct", it) }) { rebuild() })
+                  val ct = c.psInt(pre, "ct", 0)
+                  if (ct == 3) {
+                      b.addView(ui.edit("Texte", { c.psStr(pre, "tx", "") }, { c.psSetStr(pre, "tx", it) }))
+                  }
+                  if (ct != 0) {
+                      b.addView(ui.colorRow("Couleur du texte", { c.psInt(pre, "tc", 0xFFFFFFFF.toInt()) }, { c.psSetInt(pre, "tc", it) }, false))
+                      b.addView(ui.slider("Taille du texte", 6, 60, { c.psInt(pre, "ts", 16) }, { c.psSetInt(pre, "ts", it) }, " dp"))
+                  }
+
+                  b.addView(ui.section("Options"))
+                  b.addView(ui.toggle("Cacher quand le masque remplace la barre", { c.psBool(pre, "hm", false) }, { c.psSetBool(pre, "hm", it) }))
+                  b.addView(ui.button("♻️ Réinitialiser cette pastille") {
+                      c.psClear(pre)
+                      commit()
+                      rebuild()
+                  })
+                  return b
+              }
+
               private fun tabGauges(): View {
                   val c = Store.cfg
                   val b = ui.vbox()
                   b.addView(ui.section("Fines barres de progression"))
-                  b.addView(ui.hint("Une fine ligne collée au bord de la barre, qui se remplit selon l'info choisie. Tu peux en avoir deux (une en haut, une en bas) avec des infos différentes."))
+                  b.addView(ui.hint("Une fine ligne collée à un bord de la barre, qui se remplit selon l'info choisie : en bas (horizontale) ou sur un côté (verticale). Tu peux en avoir quatre, avec des infos différentes."))
                   val srcNames = listOf("🔋 Batterie", "📡 Signal mobile", "📶 Wi‑Fi", "🧠 Mémoire RAM", "💾 Stockage", "🔊 Volume", "🔆 Luminosité", "⚡ Puissance de charge", "🌗 Journée écoulée", "⏱️ Secondes")
-                  for (i in 1..2) {
+                  for (i in 1..4) {
                       b.addView(ui.section("Fine barre " + i))
                       b.addView(ui.toggle("Activée", { c.gaugeBool(i, "on", i == 1) }, { c.setGaugeBool(i, "on", it) }) { rebuild() })
                       if (c.gaugeBool(i, "on", i == 1)) {
+                          val vert = c.gaugePos(i) != 0
                           b.addView(ui.chips("Ce qu'elle montre", srcNames, { c.gaugeInt(i, "src", if (i == 1) 0 else 1) }, { c.setGaugeInt(i, "src", it) }))
-                          b.addView(ui.chips("Position", listOf("▁ En bas", "▔ En haut"), { c.gaugeInt(i, "pos", if (i == 1) 0 else 1) }, { c.setGaugeInt(i, "pos", it) }))
-                          b.addView(ui.chips("Se remplit depuis", listOf("◀ La gauche", "↔ Le centre", "La droite ▶"), { c.gaugeInt(i, "from", 0) }, { c.setGaugeInt(i, "from", it) }))
+                          b.addView(ui.chips("Position", listOf("▁ En bas", "▏ Côté gauche (verticale)", "▕ Côté droit (verticale)"), { c.gaugePos(i) }, { c.setGaugeInt(i, "pos", it) }) { rebuild() })
+                          val fromNames = if (vert) listOf("▲ Le bas (elle monte)", "↔ Le centre", "▼ Le haut (elle descend)") else listOf("◀ La gauche", "↔ Le centre", "La droite ▶")
+                          b.addView(ui.chips("Se remplit depuis", fromNames, { c.gaugeInt(i, "from", 0) }, { c.setGaugeInt(i, "from", it) }))
                           b.addView(ui.slider("Épaisseur", 1, 8, { c.gaugeInt(i, "th", 2) }, { c.setGaugeInt(i, "th", it) }, " dp"))
-                          b.addView(ui.slider("Marge sur les côtés", 0, 80, { c.gaugeInt(i, "inset", 0) }, { c.setGaugeInt(i, "inset", it) }, " dp"))
+                          b.addView(ui.slider(if (vert) "Marge en haut et en bas" else "Marge sur les côtés", 0, 80, { c.gaugeInt(i, "inset", 0) }, { c.setGaugeInt(i, "inset", it) }, " dp"))
                           b.addView(ui.toggle("Rail transparent derrière", { c.gaugeBool(i, "trk", true) }, { c.setGaugeBool(i, "trk", it) }))
                           b.addView(ui.toggle("Couleur automatique selon la valeur", { c.gaugeBool(i, "auto", true) }, { c.setGaugeBool(i, "auto", it) }) { rebuild() })
                           if (!c.gaugeBool(i, "auto", true)) {
@@ -5611,7 +6085,6 @@ jobs:
                   }
                   return b
               }
-
               // ---------------------------------------------------------------- ANIMATIONS
 
               private fun playAnim(key: String?) {
@@ -6102,8 +6575,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 30
-                  versionName = "3.0.0"
+                  versionCode = 31
+                  versionName = "3.1.0"
               }
 
               compileOptions {
