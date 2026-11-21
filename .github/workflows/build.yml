@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 3.2.0 (${{ github.sha }})
+run-name: Build APK 3.2.1 (${{ github.sha }})
 
 on:
   push:
@@ -3800,38 +3800,95 @@ jobs:
                       return intArrayOf(Math.floor(l.toDouble()).toInt(), Math.floor(t.toDouble()).toInt(), Math.ceil(r.toDouble()).toInt(), Math.ceil(b.toDouble()).toInt())
                   }
 
-                  /** Échantillonne un contour fermé en K points (x, y alternés), sens horaire, départ en haut à gauche */
+                  /**
+                   * Échantillonne un contour fermé en K points (x, y alternés), sens horaire.
+                   * Le contour est coupé en deux chaînes, de son point le plus à gauche à son point le plus à droite (par le haut,
+                   * puis par le bas), chacune échantillonnée à intervalles réguliers : deux formes de proportions différentes
+                   * se correspondent ainsi point à point, sans se vriller pendant la transformation.
+                   */
                   fun outline(path: Path, dx: Float, dy: Float): FloatArray {
+                      val dn = 720
                       val pm = PathMeasure(path, true)
                       val len = pm.length
-                      val raw = FloatArray(K * 2)
+                      var px = FloatArray(dn)
+                      var py = FloatArray(dn)
                       val pos = FloatArray(2)
-                      for (i in 0 until K) {
-                          pm.getPosTan(len * i / K, pos, null)
-                          raw[i * 2] = pos[0] + dx
-                          raw[i * 2 + 1] = pos[1] + dy
+                      for (i in 0 until dn) {
+                          pm.getPosTan(len * i / dn, pos, null)
+                          px[i] = pos[0] + dx
+                          py[i] = pos[1] + dy
                       }
                       var area = 0f
-                      for (i in 0 until K) {
-                          val j = (i + 1) % K
-                          area += raw[i * 2] * raw[j * 2 + 1] - raw[j * 2] * raw[i * 2 + 1]
+                      for (i in 0 until dn) {
+                          val j = (i + 1) % dn
+                          area += px[i] * py[j] - px[j] * py[i]
                       }
-                      var best = 0
-                      var bv = Float.MAX_VALUE
-                      for (i in 0 until K) {
-                          val v = raw[i * 2] + raw[i * 2 + 1]
-                          if (v < bv) {
-                              bv = v
-                              best = i
+                      if (area < 0f) {
+                          val rx = FloatArray(dn)
+                          val ry = FloatArray(dn)
+                          for (i in 0 until dn) {
+                              rx[i] = px[dn - 1 - i]
+                              ry[i] = py[dn - 1 - i]
+                          }
+                          px = rx
+                          py = ry
+                      }
+                      var minX = Float.MAX_VALUE
+                      var maxX = -Float.MAX_VALUE
+                      var minY = Float.MAX_VALUE
+                      var maxY = -Float.MAX_VALUE
+                      for (i in 0 until dn) {
+                          if (px[i] < minX) minX = px[i]
+                          if (px[i] > maxX) maxX = px[i]
+                          if (py[i] < minY) minY = py[i]
+                          if (py[i] > maxY) maxY = py[i]
+                      }
+                      val tol = (maxX - minX) * 0.02f + 1f
+                      val cy = (minY + maxY) / 2f
+                      var li = 0
+                      var ld = Float.MAX_VALUE
+                      var ri = 0
+                      var rd = Float.MAX_VALUE
+                      for (i in 0 until dn) {
+                          val q = Math.abs(py[i] - cy)
+                          if (px[i] <= minX + tol && q < ld) {
+                              ld = q
+                              li = i
+                          }
+                          if (px[i] >= maxX - tol && q < rd) {
+                              rd = q
+                              ri = i
                           }
                       }
-                      val res = FloatArray(K * 2)
-                      for (i in 0 until K) {
-                          val src = if (area >= 0f) (best + i) % K else ((best - i) % K + K) % K
-                          res[i * 2] = raw[src * 2]
-                          res[i * 2 + 1] = raw[src * 2 + 1]
+                      val out = FloatArray(K * 2)
+                      chain(px, py, li, ri, out, 0, K / 2)
+                      chain(px, py, ri, li, out, K / 2, K / 2)
+                      return out
+                  }
+
+                  /** Remplit cnt points régulièrement répartis (longueur d'arc) sur la chaîne qui va de l'indice from à l'indice to */
+                  private fun chain(px: FloatArray, py: FloatArray, from: Int, to: Int, out: FloatArray, off: Int, cnt: Int) {
+                      val dn = px.size
+                      val steps = ((to - from) % dn + dn) % dn
+                      val n = if (steps == 0) dn else steps
+                      val cum = FloatArray(n + 1)
+                      for (q in 1..n) {
+                          val a = (from + q - 1) % dn
+                          val b = (from + q) % dn
+                          cum[q] = cum[q - 1] + Math.hypot((px[b] - px[a]).toDouble(), (py[b] - py[a]).toDouble()).toFloat()
                       }
-                      return res
+                      val total = cum[n]
+                      var q = 0
+                      for (k in 0 until cnt) {
+                          val target = total * k / cnt
+                          while (q < n - 1 && cum[q + 1] < target) q++
+                          val a = (from + q) % dn
+                          val b = (from + q + 1) % dn
+                          val seg = cum[q + 1] - cum[q]
+                          val t = if (seg > 0f) (target - cum[q]) / seg else 0f
+                          out[(off + k) * 2] = px[a] + (px[b] - px[a]) * t
+                          out[(off + k) * 2 + 1] = py[a] + (py[b] - py[a]) * t
+                      }
                   }
               }
 
@@ -6887,8 +6944,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 32
-                  versionName = "3.2.0"
+                  versionCode = 33
+                  versionName = "3.2.1"
               }
 
               compileOptions {
