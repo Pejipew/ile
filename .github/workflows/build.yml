@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 3.3.0 (${{ github.sha }})
+run-name: Build APK 3.4.0 (${{ github.sha }})
 
 on:
   push:
@@ -1213,6 +1213,34 @@ jobs:
                   get() = gb("mkmp", true)
                   set(v) {
                       p("mkmp", v)
+                  }
+
+              /** Effet sur les infos de la barre pendant la transition : 0 fondu, 1 clignotement aléatoire, 2 affichage SNCF, 3 machine à écrire, 4 glitch */
+              var maskFx: Int
+                  get() = gi("mkfx", 0).coerceIn(0, 4)
+                  set(v) {
+                      p("mkfx", v)
+                  }
+
+              /** Durée de l'effet sur les infos, en millisecondes */
+              var maskFxMs: Int
+                  get() = gi("mkfm", 600)
+                  set(v) {
+                      p("mkfm", v)
+                  }
+
+              /** Rebond du masque quand il apparaît : 0 aucun, 1 ressort, 2 chute, 3 gélatine */
+              var maskBounce: Int
+                  get() = gi("mbnc", 1).coerceIn(0, 3)
+                  set(v) {
+                      p("mbnc", v)
+                  }
+
+              /** Force du rebond, de 10 à 100 */
+              var maskBounceAmp: Int
+                  get() = gi("mbna", 50)
+                  set(v) {
+                      p("mbna", v)
                   }
 
               /** Forme libre à points pour la barre de statut (sinon rectangle) */
@@ -3009,6 +3037,196 @@ jobs:
                   super.onDetachedFromWindow()
               }
 
+              // ---------- effets de transition : les infos s'effacent / s'affichent avec style ----------
+
+              /** 1 = infos entièrement affichées, 0 = entièrement effacées */
+              private var fxV = 1f
+              private var fxAnim: ValueAnimator? = null
+              private var fxIdx = 0
+              private var fxW = 1f
+              private var fxMode = 0
+              private var fxSy = 1f
+              private var fxDx = 0f
+              private var fxQ = 1f
+              private var fxSaved = false
+              private val fxSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+              private fun fxActive(): Boolean = fxMode != 0 && (fxAnim != null || fxV < 0.999f)
+
+              private fun rnd(i: Int): Float {
+                  var x = i * 374761393 + 668265263
+                  x = (x xor (x ushr 13)) * 1274126177.toInt()
+                  x = x xor (x ushr 16)
+                  return (x and 0xFFFF) / 65536f
+              }
+
+              /** Remet les infos entièrement affichées, sans effet */
+              fun fxReset() {
+                  fxAnim?.cancel()
+                  fxAnim = null
+                  fxV = 1f
+                  invalidate()
+              }
+
+              /** Efface (show = false) ou affiche (show = true) les infos avec l'effet choisi */
+              fun playFx(show: Boolean, ms: Long, delay: Long = 0L) {
+                  fxAnim?.cancel()
+                  fxAnim = null
+                  val to = if (show) 1f else 0f
+                  if (Store.cfg.maskFx == 0 || ms <= 0L) {
+                      fxV = to
+                      invalidate()
+                      return
+                  }
+                  if (show && delay > 0L) fxV = 0f
+                  val from = fxV
+                  if (from == to) {
+                      invalidate()
+                      return
+                  }
+                  val a = ValueAnimator.ofFloat(from, to)
+                  a.duration = maxOf(60L, (ms * Math.abs(to - from)).toLong())
+                  a.startDelay = delay
+                  a.interpolator = LinearInterpolator()
+                  a.addUpdateListener {
+                      fxV = it.animatedValue as Float
+                      invalidate()
+                  }
+                  a.addListener(object : android.animation.AnimatorListenerAdapter() {
+                      private var cancelled = false
+
+                      override fun onAnimationCancel(animation: android.animation.Animator) {
+                          cancelled = true
+                      }
+
+                      override fun onAnimationEnd(animation: android.animation.Animator) {
+                          if (cancelled) return
+                          fxV = to
+                          fxAnim = null
+                          invalidate()
+                      }
+                  })
+                  fxAnim = a
+                  a.start()
+              }
+
+              /** Prépare l'effet pour un élément (LED, icône, caractère) à la position horizontale x. Renvoie faux s'il est caché à cet instant */
+              private fun fxEval(x: Float): Boolean {
+                  val idx = fxIdx++
+                  fxSy = 1f
+                  fxDx = 0f
+                  fxQ = 1f
+                  if (!fxActive()) return true
+                  val v = fxV
+                  if (v >= 0.999f) return true
+                  if (v <= 0.001f) return false
+                  val pos = (x / fxW).coerceIn(0f, 1f)
+                  val r = rnd(idx)
+                  val t = System.currentTimeMillis()
+                  when (fxMode) {
+                      1 -> { // clignotement aléatoire : chaque élément scintille avant de se fixer
+                          val q = ((v - r * 0.75f) / 0.25f).coerceIn(0f, 1f)
+                          fxQ = q
+                          if (q <= 0f) return false
+                          if (q >= 1f) return true
+                          return rnd((t / 50L).toInt() * 31 + idx * 17 + 5) < 0.1f + 0.8f * q
+                      }
+                      2 -> { // affichage SNCF : palettes qui tournent de gauche à droite, lettres qui défilent
+                          val q = ((v - pos * 0.55f) / 0.45f).coerceIn(0f, 1f)
+                          fxQ = q
+                          if (q <= 0f) return false
+                          if (q >= 1f) return true
+                          fxSy = Math.max(0.08f, Math.abs(Math.cos(q * 4.0 * Math.PI).toFloat()))
+                          return true
+                      }
+                      3 -> { // machine à écrire : de gauche à droite, et à l'envers pour effacer
+                          return pos <= v
+                      }
+                      4 -> { // glitch : décalages et franges de couleur
+                          val q = ((v - r * 0.7f) / 0.3f).coerceIn(0f, 1f)
+                          fxQ = q
+                          if (q <= 0f) return false
+                          if (q >= 1f) return true
+                          if (rnd((t / 60L).toInt() * 29 + idx * 13 + 3) >= 0.35f + 0.6f * q) return false
+                          fxDx = (rnd((t / 70L).toInt() * 11 + idx * 5 + 1) - 0.5f) * 10f * d * (1f - q)
+                          return true
+                      }
+                  }
+                  return true
+              }
+
+              /** Début d'un bloc (LED, icône d'appli) soumis à l'effet : faux = ne pas le dessiner. À terminer par fxEnd */
+              private fun fxBegin(canvas: Canvas, x: Float, cx: Float, cy: Float): Boolean {
+                  fxSaved = false
+                  if (!fxActive()) return true
+                  if (!fxEval(x)) return false
+                  canvas.save()
+                  if (fxSy < 0.999f) canvas.scale(1f, fxSy, cx, cy)
+                  if (fxDx != 0f) canvas.translate(fxDx, 0f)
+                  fxSaved = true
+                  return true
+              }
+
+              private fun fxEnd(canvas: Canvas) {
+                  if (fxSaved) {
+                      canvas.restore()
+                      fxSaved = false
+                  }
+              }
+
+              /** Dessine un texte avec l'effet en cours (caractère par caractère si split) */
+              private fun fxText(canvas: Canvas, t: String, x: Float, y: Float, split: Boolean) {
+                  if (!fxActive()) {
+                      canvas.drawText(t, x, y, tp)
+                      return
+                  }
+                  if (!split) {
+                      fxOne(canvas, t, x, y)
+                      return
+                  }
+                  var cx = x
+                  var i = 0
+                  while (i < t.length) {
+                      val n = Character.charCount(t.codePointAt(i))
+                      val s = t.substring(i, i + n)
+                      fxOne(canvas, s, cx, y)
+                      cx += tp.measureText(s)
+                      i += n
+                  }
+              }
+
+              private fun fxOne(canvas: Canvas, s: String, x: Float, y: Float) {
+                  val cw = tp.measureText(s)
+                  if (!fxEval(x + cw / 2f)) return
+                  var str = s
+                  if (fxMode == 2 && fxQ < 0.85f && s.length == 1 && s[0].isLetterOrDigit()) {
+                      str = fxSet[((System.currentTimeMillis() / 65L + fxIdx * 7L) % fxSet.length).toInt()].toString()
+                  }
+                  val cy = y + (tp.ascent() + tp.descent()) / 2f
+                  val flip = fxSy < 0.999f
+                  if (flip) {
+                      canvas.save()
+                      canvas.scale(1f, fxSy, x + cw / 2f, cy)
+                  }
+                  if (fxMode == 4 && fxQ < 1f) {
+                      val col = tp.color
+                      val g = (2f + 3f * (1f - fxQ)) * d
+                      tp.color = (Pal.CYAN and 0x00FFFFFF) or (0x99 shl 24)
+                      canvas.drawText(str, x - g, y, tp)
+                      tp.color = (Pal.PINK and 0x00FFFFFF) or (0x99 shl 24)
+                      canvas.drawText(str, x + g, y, tp)
+                      tp.color = col
+                  }
+                  canvas.drawText(str, x + fxDx, y, tp)
+                  if (flip) {
+                      canvas.restore()
+                      lp.style = Paint.Style.FILL
+                      lp.maskFilter = null
+                      lp.color = Store.cfg.fill
+                      canvas.drawRect(x, cy - d * 0.7f, x + cw, cy + d * 0.7f, lp)
+                  }
+              }
+
               // ---------- mise en page ----------
 
               private fun face(m: Mod): Typeface {
@@ -3097,7 +3315,10 @@ jobs:
                   var x = x0 + m.shiftX * d
                   var first = true
                   if (m.showLed && m.part == 0) {
-                      drawLed(canvas, m, v, x, cy, s)
+                      if (fxBegin(canvas, x, x + ledW(m, s) / 2f, cy)) {
+                          drawLed(canvas, m, v, x, cy, s)
+                          fxEnd(canvas)
+                      }
                       x += ledW(m, s)
                       first = false
                   }
@@ -3110,9 +3331,10 @@ jobs:
                               val isz = m.textSize * (Store.cfg.fontScale / 100f) * d * s * 1.35f
                               for (i in notifFrom(m) until notifTo(m)) {
                                   val dr = engine.appIcon(items[i].pkg)
-                                  if (dr != null) {
+                                  if (dr != null && fxBegin(canvas, x, x + isz / 2f, cy)) {
                                       dr.setBounds(x.toInt(), (cy - isz / 2f).toInt(), (x + isz).toInt(), (cy + isz / 2f).toInt())
                                       dr.draw(canvas)
+                                      fxEnd(canvas)
                                   }
                                   x += isz + 2f * d * s
                               }
@@ -3122,7 +3344,7 @@ jobs:
                           if (!first) x += g
                           setText(m, s, true)
                           val ic = iconOf(m, v)
-                          canvas.drawText(ic, x, cy - (tp.ascent() + tp.descent()) / 2f, tp)
+                          fxText(canvas, ic, x, cy - (tp.ascent() + tp.descent()) / 2f, false)
                           x += tp.measureText(ic)
                           first = false
                       }
@@ -3131,7 +3353,7 @@ jobs:
                   if (m.showText && t.isNotEmpty() && m.part == 0) {
                       if (!first) x += g
                       setText(m, s, false)
-                      canvas.drawText(t, x, cy - (tp.ascent() + tp.descent()) / 2f, tp)
+                      fxText(canvas, t, x, cy - (tp.ascent() + tp.descent()) / 2f, true)
                   }
               }
 
@@ -3410,6 +3632,9 @@ jobs:
                   }
 
                   // infos
+                  fxIdx = 0
+                  fxW = w
+                  fxMode = c.maskFx
                   val cy = h / 2f
                   val gap = c.spacing * d
                   val edge = c.padEdge * d
@@ -3776,6 +4001,7 @@ jobs:
           import android.view.MotionEvent
           import android.view.View
           import android.view.animation.AccelerateDecelerateInterpolator
+          import android.view.animation.BounceInterpolator
           import android.view.animation.LinearInterpolator
 
           /** Barre de masquage : un contour à points réglables, rempli de la couleur choisie, avec bordure (unie, dégradée, rotative, néon) */
@@ -3976,6 +4202,60 @@ jobs:
                   a.start()
               }
 
+              private var bnAnim: ValueAnimator? = null
+
+              private fun resetBounce() {
+                  scaleX = 1f
+                  scaleY = 1f
+                  translationY = 0f
+              }
+
+              fun cancelBounce() {
+                  bnAnim?.cancel()
+                  bnAnim = null
+                  resetBounce()
+              }
+
+              /** Rebond à l'apparition du masque : 1 ressort, 2 chute, 3 gélatine ; amp = force de 0 à 100 */
+              fun bounceIn(style: Int, amp: Int) {
+                  cancelBounce()
+                  if (style <= 0 || amp <= 0) return
+                  val c = Store.cfg
+                  pivotX = screenW / 2f + c.maskX - winX
+                  pivotY = c.maskY + c.maskH / 2f - winY
+                  val k = amp / 100f
+                  val drop = 30f + 0.9f * amp
+                  val bi = BounceInterpolator()
+                  val a = ValueAnimator.ofFloat(0f, 1f)
+                  a.duration = if (style == 2) 650L else 800L
+                  a.interpolator = LinearInterpolator()
+                  a.addUpdateListener {
+                      val t = it.animatedValue as Float
+                      val e = (Math.exp(-5.0 * t) * Math.cos(t * 6.0 * Math.PI)).toFloat()
+                      when (style) {
+                          1 -> { // ressort : part plus petit, dépasse, se stabilise
+                              val s = 1f - 0.45f * k * e
+                              scaleX = s
+                              scaleY = s
+                          }
+                          2 -> { // chute : tombe du haut et rebondit
+                              translationY = -(1f - bi.getInterpolation(t)) * drop
+                          }
+                          else -> { // gélatine : écrasé puis étiré
+                              scaleX = 1f + 0.12f * k * e
+                              scaleY = 1f - 0.5f * k * e
+                          }
+                      }
+                  }
+                  a.addListener(object : AnimatorListenerAdapter() {
+                      override fun onAnimationEnd(animation: Animator) {
+                          resetBounce()
+                      }
+                  })
+                  bnAnim = a
+                  a.start()
+              }
+
               /** Transforme le contour de la barre (from, en pixels écran) en celui du masque (toMask = true) ou l'inverse */
               fun startMorph(from: FloatArray, toMask: Boolean, ms: Long, end: () -> Unit) {
                   cancelMorph()
@@ -4017,6 +4297,7 @@ jobs:
                   anim?.cancel()
                   anim = null
                   cancelMorph()
+                  cancelBounce()
                   super.onDetachedFromWindow()
               }
 
@@ -5098,6 +5379,7 @@ jobs:
                   maskLp = ml
                   lastOff = false
                   lastMaskShow = true
+                  bar.fxReset()
                   barLp = bl
                   haloLp = hl
                   notchLp = nl
@@ -5151,6 +5433,44 @@ jobs:
               /** Relit tous les réglages et met les fenêtres à jour immédiatement */
               fun playTest(key: String?) {
                   bar.playTest(key)
+              }
+
+              /** Bouton « Tester » : la barre efface ses infos avec l'effet, le masque apparaît avec son rebond, puis tout revient */
+              fun testTransition() {
+                  if (!added) return
+                  val c = Store.cfg
+                  val fxMs = c.maskFxMs.toLong()
+                  val ms = c.maskFade.toLong()
+                  mask.cancelMorph()
+                  mask.animate().cancel()
+                  bar.animate().cancel()
+                  mask.visibility = View.INVISIBLE
+                  mask.alpha = 1f
+                  bar.alpha = 1f
+                  bar.visibility = View.VISIBLE
+                  bar.fxReset()
+                  bar.refresh()
+                  handler.postDelayed({
+                      bar.playFx(false, fxMs)
+                      fadeTo(bar, false, fxMs / 2, fxMs / 2)
+                      fadeTo(mask, true, ms, fxMs / 3)
+                      handler.postDelayed({ mask.bounceIn(c.maskBounce, c.maskBounceAmp) }, fxMs / 3)
+                  }, 400L)
+                  handler.postDelayed({
+                      fadeTo(mask, false, maxOf(ms, 200L), 0L)
+                      bar.playFx(true, fxMs, 150L)
+                      fadeTo(bar, true, maxOf(fxMs / 3, 120L), 0L)
+                  }, 400L + fxMs + 1800L)
+                  // retour à l'état réel des fenêtres
+                  handler.postDelayed({
+                      bar.animate().cancel()
+                      mask.animate().cancel()
+                      bar.fxReset()
+                      bar.alpha = 1f
+                      mask.alpha = 1f
+                      bar.visibility = if (lastOff) View.INVISIBLE else View.VISIBLE
+                      mask.visibility = if (lastMaskShow) View.VISIBLE else View.INVISIBLE
+                  }, 400L + fxMs * 2 + 2800L)
               }
 
               fun apply() {
@@ -5250,10 +5570,11 @@ jobs:
                   if (ml != null) {
                       // fenêtre ajustée à la forme (avec une marge pour la bordure et le halo) ; elle englobe aussi la barre pendant la transformation
                       val bb = MaskView.bounds(c, sw)
-                      var wl = bb[0] - 80
-                      var wt = bb[1] - 80
-                      var wr = bb[2] + 80
-                      var wb = bb[3] + 80
+                      val mg = 80 + (if (c.maskBounce != 0) c.maskBounceAmp else 0)
+                      var wl = bb[0] - mg
+                      var wt = bb[1] - mg
+                      var wr = bb[2] + mg
+                      var wb = bb[3] + mg
                       if (c.maskMorph && c.maskFade > 0) {
                           val bwp = c.width * d
                           val bl0 = (sw - bwp) / 2f + c.offX * d
@@ -5311,25 +5632,53 @@ jobs:
                   val ms = c.maskFade.toLong()
                   if (off != lastOff || maskShow != lastMaskShow) {
                       val morph = c.maskMorph && ms > 0L
+                      // effet de style sur les infos : seulement pour un vrai passage barre <-> masque
+                      val fx = c.maskFx != 0 && off != lastOff && maskShow != lastMaskShow
+                      val fxMs = c.maskFxMs.toLong()
                       if (morph && maskShow && !lastMaskShow && !lastOff && off) {
                           startMorph(true, ms)
-                          fadeTo(bar, false, ms / 2, 0L)
+                          if (fx) {
+                              bar.playFx(false, fxMs)
+                              fadeTo(bar, false, fxMs / 2, fxMs / 2)
+                          } else {
+                              bar.fxReset()
+                              fadeTo(bar, false, ms / 2, 0L)
+                          }
                           fadeTo(halo, false, ms, 0L)
                           fadeTo(notch, false, ms, 0L)
                           fadeTo(side, false, ms, 0L)
                       } else if (morph && !maskShow && lastMaskShow && lastOff && !off) {
                           startMorph(false, ms)
-                          fadeTo(bar, true, ms / 2, ms / 2)
+                          if (fx) {
+                              val wd = maxOf(ms / 2, 150L)
+                              bar.playFx(true, fxMs, ms / 2 + wd / 2)
+                              fadeTo(bar, true, wd, ms / 2)
+                          } else {
+                              bar.fxReset()
+                              fadeTo(bar, true, ms / 2, ms / 2)
+                          }
                           fadeTo(halo, true, ms / 2, ms / 2)
                           fadeTo(notch, true, ms, 0L)
                           fadeTo(side, true, ms, 0L)
                       } else {
                           mask.cancelMorph()
-                          fadeTo(bar, !off, ms, 0L)
+                          if (fx) {
+                              if (off) {
+                                  bar.playFx(false, fxMs)
+                                  fadeTo(bar, false, fxMs / 2, fxMs / 2)
+                              } else {
+                                  bar.playFx(true, fxMs, maxOf(fxMs / 6, 60L))
+                                  fadeTo(bar, true, maxOf(fxMs / 3, 120L), 0L)
+                              }
+                          } else {
+                              bar.fxReset()
+                              fadeTo(bar, !off, ms, 0L)
+                          }
                           fadeTo(halo, !off, ms, 0L)
                           fadeTo(notch, !off, ms, 0L)
                           fadeTo(side, !off, ms, 0L)
                           fadeTo(mask, maskShow, ms, 0L)
+                          if (maskShow && !lastMaskShow) mask.bounceIn(c.maskBounce, c.maskBounceAmp)
                       }
                       lastOff = off
                       lastMaskShow = maskShow
@@ -5382,7 +5731,7 @@ jobs:
                   mask.alpha = 1f
                   mask.visibility = View.VISIBLE
                   mask.startMorph(from, toMask, ms) {
-                      if (!toMask) mask.visibility = View.INVISIBLE
+                      if (!toMask) mask.visibility = View.INVISIBLE else mask.bounceIn(c.maskBounce, c.maskBounceAmp)
                   }
               }
               /** Réglage de la forme de la barre : glisser déplace la barre, toucher un point (forme libre) déplace ce point */
@@ -5579,6 +5928,10 @@ jobs:
 
               fun playTest(key: String?) {
                   controller?.playTest(key)
+              }
+
+              fun testTransition() {
+                  controller?.testTransition()
               }
 
               fun detect(cb: (IntArray?) -> Unit) {
@@ -6019,6 +6372,18 @@ jobs:
                   b.addView(ui.toggle("Aussi quand la barre est cachée (verrouillage, AOD, paysage)", { c.maskWhenHidden }, { c.maskWhenHidden = it }))
                   b.addView(ui.slider("Durée de la transition barre ↔ masque (0 = instantané)", 0, 1000, { c.maskFade }, { c.maskFade = it }, " ms"))
                   b.addView(ui.toggle("Transformer la forme pendant la transition (morphing)", { c.maskMorph }, { c.maskMorph = it }))
+
+                  b.addView(ui.section("Effet sur les infos pendant la transition"))
+                  b.addView(ui.hint("Comment les infos de la barre s'effacent (vers le masque) et se réaffichent (au retour)."))
+                  b.addView(ui.chips(null, listOf("Fondu simple", "Clignotement aléatoire", "Affichage SNCF", "Machine à écrire", "Glitch"), { c.maskFx }, { c.maskFx = it }))
+                  b.addView(ui.slider("Durée de l'effet", 150, 2000, { c.maskFxMs }, { c.maskFxMs = it }, " ms"))
+
+                  b.addView(ui.section("Rebond à l'apparition du masque"))
+                  b.addView(ui.chips(null, listOf("Aucun", "Ressort", "Chute", "Gélatine"), { c.maskBounce }, { c.maskBounce = it }) { rebuild() })
+                  if (c.maskBounce != 0) {
+                      b.addView(ui.slider("Force du rebond", 10, 100, { c.maskBounceAmp }, { c.maskBounceAmp = it }, " %"))
+                  }
+                  b.addView(ui.buttons(listOf("▶ Tester la transition")) { IslandAccessibilityService.instance?.testTransition() })
 
                   b.addView(ui.section("Taille et position (pixels)"))
                   b.addView(ui.slider("Largeur", 1, sw, { c.maskW }, { c.maskW = it }, " px"))
@@ -6973,8 +7338,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 34
-                  versionName = "3.3.0"
+                  versionCode = 35
+                  versionName = "3.4.0"
               }
 
               compileOptions {
