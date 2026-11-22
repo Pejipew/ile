@@ -4204,10 +4204,17 @@ jobs:
 
               private var bnAnim: ValueAnimator? = null
 
+              private var bnSx = 1f
+              private var bnSy = 1f
+              private var bnTy = 0f
+              private var bnPx = 0f
+              private var bnPy = 0f
+
               private fun resetBounce() {
-                  scaleX = 1f
-                  scaleY = 1f
-                  translationY = 0f
+                  bnSx = 1f
+                  bnSy = 1f
+                  bnTy = 0f
+                  invalidate()
               }
 
               fun cancelBounce() {
@@ -4221,8 +4228,8 @@ jobs:
                   cancelBounce()
                   if (style <= 0 || amp <= 0) return
                   val c = Store.cfg
-                  pivotX = screenW / 2f + c.maskX - winX
-                  pivotY = c.maskY + c.maskH / 2f - winY
+                  bnPx = screenW / 2f + c.maskX - winX
+                  bnPy = c.maskY + c.maskH / 2f - winY
                   val k = amp / 100f
                   val drop = 30f + 0.9f * amp
                   val bi = BounceInterpolator()
@@ -4235,17 +4242,18 @@ jobs:
                       when (style) {
                           1 -> { // ressort : part plus petit, dépasse, se stabilise
                               val s = 1f - 0.45f * k * e
-                              scaleX = s
-                              scaleY = s
+                              bnSx = s
+                              bnSy = s
                           }
                           2 -> { // chute : tombe du haut et rebondit
-                              translationY = -(1f - bi.getInterpolation(t)) * drop
+                              bnTy = -(1f - bi.getInterpolation(t)) * drop
                           }
                           else -> { // gélatine : écrasé puis étiré
-                              scaleX = 1f + 0.12f * k * e
-                              scaleY = 1f - 0.5f * k * e
+                              bnSx = 1f + 0.12f * k * e
+                              bnSy = 1f - 0.5f * k * e
                           }
                       }
+                      invalidate()
                   }
                   a.addListener(object : AnimatorListenerAdapter() {
                       override fun onAnimationEnd(animation: Animator) {
@@ -4367,6 +4375,10 @@ jobs:
 
               override fun onDraw(canvas: Canvas) {
                   canvas.save()
+                  if (bnSx != 1f || bnSy != 1f || bnTy != 0f) {
+                      canvas.translate(0f, bnTy)
+                      canvas.scale(bnSx, bnSy, bnPx, bnPy)
+                  }
                   canvas.translate(-winX.toFloat(), -winY.toFloat())
                   drawAll(canvas)
                   canvas.restore()
