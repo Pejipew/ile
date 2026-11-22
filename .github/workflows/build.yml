@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 3.2.1 (${{ github.sha }})
+run-name: Build APK 3.3.0 (${{ github.sha }})
 
 on:
   push:
@@ -46,6 +46,23 @@ jobs:
               val PURPLE = 0xFFE040FB.toInt()
               val GRAY = 0xFF6B6B7B.toInt()
               val WHITE = 0xFFFFFFFF.toInt()
+
+              /** Couleur d'origine du niveau de volume i (0 à 16) : gris à 0, puis du bleu au rouge */
+              fun volDef(i: Int): Int {
+                  if (i <= 0) return GRAY
+                  val stops = intArrayOf(BLUE, CYAN, GREEN, YELLOW, ORANGE, RED)
+                  val t = ((i - 1).coerceAtMost(15) / 15f) * (stops.size - 1)
+                  val k = t.toInt().coerceAtMost(stops.size - 2)
+                  val f = t - k
+                  val a = stops[k]
+                  val b = stops[k + 1]
+                  fun ch(sh: Int): Int {
+                      val x = (a shr sh) and 0xFF
+                      val y = (b shr sh) and 0xFF
+                      return (x + (y - x) * f).toInt().coerceIn(0, 255)
+                  }
+                  return (0xFF shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+              }
           }
 
           /** Couleur d'un palier ou d'un état : celle choisie par la personne, sinon celle d'origine */
@@ -118,11 +135,12 @@ jobs:
                       PalEntry("dnd", "Ne pas déranger", Pal.PURPLE),
                       PalEntry("torch", "Lampe torche", Pal.YELLOW)
                   )),
+                  PalGroup("🔊 Volume : une couleur par niveau (0 à 16)", "La LED de l'info Volume prend la couleur du niveau actuel. Le volume est ramené sur 16 niveaux, quel que soit le nombre de crans de ton téléphone (0 = muet).",
+                      List(17) { PalEntry("vol" + it, if (it == 0) "Niveau 0 (muet)" else "Niveau " + it, Pal.volDef(it)) }),
                   PalGroup("🎨 Autres infos", "", listOf(
                       PalEntry("time", "Heure", Pal.CYAN),
                       PalEntry("date", "Date", Pal.PURPLE),
                       PalEntry("alarm", "Prochain réveil", Pal.YELLOW),
-                      PalEntry("volume", "Volume", Pal.CYAN),
                       PalEntry("bright", "Luminosité", Pal.YELLOW),
                       PalEntry("speed", "Débit réseau", Pal.CYAN),
                       PalEntry("notif", "Notifications", Pal.PINK),
@@ -677,7 +695,7 @@ jobs:
                   }
 
               var animOn: Boolean
-                  get() = gb("ao", true)
+                  get() = false
                   set(v) {
                       p("ao", v)
                   }
@@ -2288,8 +2306,10 @@ jobs:
                           val am = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
                           val st = arrayOf(AudioManager.STREAM_MUSIC, AudioManager.STREAM_RING, AudioManager.STREAM_VOICE_CALL, AudioManager.STREAM_ALARM)[opt.coerceIn(0, 3)]
                           val mx = am.getStreamMaxVolume(st).coerceAtLeast(1)
-                          val p = am.getStreamVolume(st) * 100 / mx
-                          ModuleValue("$p%", true, tc("volume", Pal.CYAN), if (p == 0) "🔇" else null)
+                          val vol = am.getStreamVolume(st)
+                          val p = vol * 100 / mx
+                          val lvl = Math.round(vol * 16f / mx).coerceIn(0, 16)
+                          ModuleValue("$p%", true, tc("vol" + lvl, Pal.volDef(lvl)), if (p == 0) "🔇" else null)
                       }
                       Kind.BRIGHTNESS -> {
                           val v = Settings.System.getInt(app.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128) * 100 / 255
@@ -2717,6 +2737,8 @@ jobs:
               private val animPaint = Paint(Paint.ANTI_ALIAS_FLAG)
               private val gaugePaint = Paint(Paint.ANTI_ALIAS_FLAG)
               private var prevSnap: EvSnap? = null
+              /** Les fines barres de progression sont retirées de l'appli */
+              private val gaugesOn = false
               private val gFrac = floatArrayOf(0f, 0f, 0f, 0f)
               private val gCol = intArrayOf(Pal.GREEN, Pal.GREEN, Pal.GREEN, Pal.GREEN)
               private val gMods = HashMap<Int, Mod>()
@@ -2744,7 +2766,7 @@ jobs:
                   }
                   vals = m
                   for (gi in 1..4) {
-                      if (c.gaugeBool(gi, "on", gi == 1)) {
+                      if (gaugesOn && c.gaugeBool(gi, "on", gi == 1)) {
                           computeGauge(gi)
                           if (c.gaugeInt(gi, "src", if (gi == 1) 0 else 1) == 9) needFast = true
                       }
@@ -2782,7 +2804,7 @@ jobs:
               }
 
               private fun drawGauge(canvas: Canvas, c: Config, i: Int, w: Float, h: Float) {
-                  if (!c.gaugeBool(i, "on", i == 1)) return
+                  if (!gaugesOn || !c.gaugeBool(i, "on", i == 1)) return
                   val th = c.gaugeInt(i, "th", 2) * d
                   val pos = c.gaugePos(i)
                   val col = if (c.gaugeBool(i, "auto", true)) gCol[i - 1] else c.gaugeInt(i, "col", Pal.CYAN)
@@ -5092,7 +5114,6 @@ jobs:
                       wm.addView(halo, hl)
                       wm.addView(notch, nl)
                       wm.addView(side, sl)
-                      for (i in 0 until 10) wm.addView(pas[i], pasLp[i])
                       added = true
                   } catch (e: Exception) {
                       added = false
@@ -5316,7 +5337,7 @@ jobs:
                   // pastilles : visibles si activées (ou en cours de réglage), sauf quand la barre est cachée
                   for (i in 0 until 10) {
                       val pre = "pa" + i + "_"
-                      val show = Store.psEdit == pre || (c.psBool(pre, "on", false) && !hidden && !(c.psBool(pre, "hm", false) && replace))
+                      val show = false
                       pas[i].visibility = if (show) View.VISIBLE else View.INVISIBLE
                   }
                   bar.syncAnim()
@@ -5772,7 +5793,7 @@ jobs:
               private lateinit var tabRow: LinearLayout
               private var tab = 0
               private val handler = Handler(Looper.getMainLooper())
-              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G", "📏 Jauges", "✨ Animations", "🕳️ Masque", "🔵 Pastilles")
+              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G", "🕳️ Masque")
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -5839,7 +5860,7 @@ jobs:
                   engine.start()
                   refreshViews()
                   if (tab == 4) showTab(4)
-                  if (tab == 9) setMaskEdit(true)
+                  if (tab == 7) setMaskEdit(true)
                   Store.uiRefresh = {
                       runOnUiThread {
                           preview.relayout()
@@ -5918,7 +5939,7 @@ jobs:
                       .sortedBy { it.second.lowercase() }
                   val sel = c.maskApps
                   val checked = BooleanArray(list.size) { sel.contains(list[it].first) }
-                  AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                  val dlg = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                       .setTitle("Applis avec le masque")
                       .setMultiChoiceItems(list.map { it.second }.toTypedArray(), checked) { _, which, on -> checked[which] = on }
                       .setPositiveButton("OK") { _, _ ->
@@ -5929,7 +5950,19 @@ jobs:
                           rebuild()
                       }
                       .setNegativeButton("Annuler", null)
-                      .show()
+                      .setNeutralButton(if (checked.all { it }) "Tout décocher" else "Tout cocher", null)
+                      .create()
+                  dlg.show()
+                  // le bouton coche ou décoche toute la liste sans fermer la fenêtre
+                  val all = dlg.getButton(android.content.DialogInterface.BUTTON_NEUTRAL)
+                  all.setOnClickListener {
+                      val allOn = checked.all { it }
+                      for (i in list.indices) {
+                          checked[i] = !allOn
+                          dlg.listView.setItemChecked(i, !allOn)
+                      }
+                      all.text = if (allOn) "Tout cocher" else "Tout décocher"
+                  }
               }
 
               // ---------------------------------------------------------------- MASQUE (pixels morts)
@@ -6027,14 +6060,13 @@ jobs:
 
               private fun showTab(i: Int) {
                   tab = i
-                  setMaskEdit(i == 9)
+                  setMaskEdit(i == 7)
                   val oldEdit = Store.psEdit
                   val oldGroup = Store.dragGroup
                   Store.psEdit = ""
                   Store.dragGroup = when (i) {
                       0 -> 3
-                      9 -> 1
-                      10 -> 2
+                      7 -> 1
                       else -> 0
                   }
                   for (k in 0 until tabRow.childCount) ui.styleChip(tabRow.getChildAt(k) as TextView, k == i)
@@ -6046,10 +6078,7 @@ jobs:
                       3 -> tabInfos()
                       5 -> scroll(tabColors())
                       6 -> scroll(tabHistory())
-                      7 -> scroll(tabGauges())
-                      8 -> scroll(tabAnim())
-                      9 -> scroll(tabMask())
-                      10 -> scroll(tabPas())
+                      7 -> scroll(tabMask())
                       else -> scroll(tabOptions())
                   }
                   content.addView(v, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
@@ -6944,8 +6973,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 33
-                  versionName = "3.2.1"
+                  versionCode = 34
+                  versionName = "3.3.0"
               }
 
               compileOptions {
