@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 3.4.0 (${{ github.sha }})
+run-name: Build APK 3.5.0 (${{ github.sha }})
 
 on:
   push:
@@ -5282,6 +5282,7 @@ jobs:
               private val notch = View(svc)
               private val side = SideView(svc) { act(it) }
               private val mask = MaskView(svc)
+              private val sub = SubBarController(svc, wm, { engine.torchOn }, { toggleTorch() }, { act(it) })
               private var barLp: WindowManager.LayoutParams? = null
               private var haloLp: WindowManager.LayoutParams? = null
               private var notchLp: WindowManager.LayoutParams? = null
@@ -5421,12 +5422,14 @@ jobs:
                   f.addAction(Intent.ACTION_SCREEN_OFF)
                   f.addAction(Intent.ACTION_USER_PRESENT)
                   ContextCompat.registerReceiver(svc, receiver, f, ContextCompat.RECEIVER_NOT_EXPORTED)
+                  sub.start()
                   apply()
                   engine.start()
               }
 
               fun stop() {
                   engine.stop()
+                  sub.stop()
                   if (added) {
                       try { wm.removeView(bar) } catch (e: Exception) {}
                       try { wm.removeView(halo) } catch (e: Exception) {}
@@ -5612,6 +5615,7 @@ jobs:
                       mask.post { mask.invalidate() }
                   }
 
+                  sub.apply()
                   updateVisibility()
                   refresh()
               }
@@ -5621,6 +5625,7 @@ jobs:
                   bar.refresh()
                   halo.refresh()
                   side.refresh()
+                  sub.poke()
               }
 
               /** Masque la barre sur l'AOD / l'écran verrouillé / en paysage selon les options */
@@ -5704,6 +5709,9 @@ jobs:
                   bar.syncAnim()
                   halo.syncAnim()
                   mask.syncAnim(maskShow)
+
+                  // la sous-barre suit la barre principale : cachée quand elle l'est
+                  sub.setAllowed(!off && st != Display.STATE_OFF)
 
                   if (off || st == Display.STATE_OFF) engine.stop() else engine.start()
               }
@@ -6158,7 +6166,7 @@ jobs:
               private lateinit var tabRow: LinearLayout
               private var tab = 0
               private val handler = Handler(Looper.getMainLooper())
-              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G", "🕳️ Masque")
+              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G", "🕳️ Masque", "🎵 Sous-barre")
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -6239,9 +6247,10 @@ jobs:
               override fun onPause() {
                   setMaskEdit(false)
                   Store.uiRefresh = null
-                  if (Store.psEdit.isNotEmpty() || Store.dragGroup != 0) {
+                  if (Store.psEdit.isNotEmpty() || Store.dragGroup != 0 || Sub.edit) {
                       Store.psEdit = ""
                       Store.dragGroup = 0
+                      Sub.edit = false
                       IslandAccessibilityService.instance?.reload()
                   }
                   engine.stop()
@@ -6440,6 +6449,8 @@ jobs:
                   setMaskEdit(i == 7)
                   val oldEdit = Store.psEdit
                   val oldGroup = Store.dragGroup
+                  val oldSub = Sub.edit
+                  Sub.edit = (i == 8)
                   Store.psEdit = ""
                   Store.dragGroup = when (i) {
                       0 -> 3
@@ -6456,10 +6467,11 @@ jobs:
                       5 -> scroll(tabColors())
                       6 -> scroll(tabHistory())
                       7 -> scroll(tabMask())
+                      8 -> scroll(tabSub())
                       else -> scroll(tabOptions())
                   }
                   content.addView(v, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
-                  if (Store.psEdit != oldEdit || Store.dragGroup != oldGroup) IslandAccessibilityService.instance?.reload()
+                  if (Store.psEdit != oldEdit || Store.dragGroup != oldGroup || Sub.edit != oldSub) IslandAccessibilityService.instance?.reload()
               }
 
               /** Reconstruit l'onglet courant en gardant la position de défilement */
@@ -6732,6 +6744,144 @@ jobs:
                       b.addView(ui.chips("Glisser vers le haut", Actions.names, { c.sideUp }, { c.sideUp = it }))
                       b.addView(ui.chips("Glisser vers le centre de l'écran", Actions.names, { c.sideIn }, { c.sideIn = it }))
                   }
+                  return b
+              }
+
+
+              // ---------------------------------------------------------------- SOUS-BARRE
+
+              private fun tabSub(): View {
+                  val b = ui.vbox()
+                  val k = Sub.demoKind.coerceIn(0, Sub.COUNT - 1)
+
+                  fun tog(key: String, title: String, def: Boolean) {
+                      b.addView(ui.toggle(title, { Sub.kb(k, key, def) }, { Sub.kbs(k, key, it) }))
+                  }
+
+                  b.addView(ui.section("Sous-barre"))
+                  b.addView(ui.hint("Une seconde barre qui apparaît juste sous la barre principale quand il se passe quelque chose (musique en cours, charge, lampe torche…), puis disparaît toute seule. Tant que cet onglet est ouvert, elle s'affiche en démonstration sous ta vraie barre."))
+                  b.addView(statusLine(hasNotifAccess(), "Accès aux notifications (obligatoire pour la musique et les notifications)", "Autoriser") {
+                      startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                  })
+                  b.addView(ui.toggle("Activer la sous-barre", { Sub.gb("on", true) }, { Sub.sb("on", it) }))
+
+                  // ---- quand elle apparaît
+                  b.addView(ui.section("Quand elle apparaît"))
+                  b.addView(ui.hint("Coche les situations qui font apparaître la sous-barre."))
+                  for (n in 0 until Sub.COUNT) {
+                      b.addView(ui.toggle(Sub.names[n], { Sub.enabled(n) }, { Sub.kbs(n, "on", it) }))
+                  }
+                  b.addView(ui.section("Priorité"))
+                  b.addView(ui.hint("Si plusieurs situations sont actives en même temps, celle du haut s'affiche. Utilise ▲ ▼ pour changer l'ordre."))
+                  for (n in Sub.order()) {
+                      val row = ui.hrow()
+                      row.setPadding(0, ui.dp(4), 0, ui.dp(4))
+                      val name = ui.tv(Sub.names[n], 14f, if (Sub.enabled(n)) Pal.TXT else Pal.SUB)
+                      row.addView(name, LinearLayout.LayoutParams(0, ui.WRAP, 1f))
+                      val up = ui.chip("▲")
+                      up.setOnClickListener {
+                          Sub.move(n, -1)
+                          commit()
+                          rebuild()
+                      }
+                      val dn = ui.chip("▼")
+                      dn.setOnClickListener {
+                          Sub.move(n, 1)
+                          commit()
+                          rebuild()
+                      }
+                      val lp1 = LinearLayout.LayoutParams(ui.WRAP, ui.WRAP)
+                      lp1.setMargins(ui.dp(8), 0, 0, 0)
+                      val lp2 = LinearLayout.LayoutParams(ui.WRAP, ui.WRAP)
+                      lp2.setMargins(ui.dp(8), 0, 0, 0)
+                      row.addView(up, lp1)
+                      row.addView(dn, lp2)
+                      b.addView(row)
+                  }
+                  b.addView(ui.toggle("Faire tourner les situations actives", { Sub.gb("rot", false) }, { Sub.sb("rot", it) }) { rebuild() })
+                  if (Sub.gb("rot", false)) {
+                      b.addView(ui.slider("Temps pour chacune", 2, 30, { Sub.gi("rotms", 5) }, { Sub.si("rotms", it) }, " s"))
+                  }
+
+                  // ---- réglages de la situation choisie
+                  b.addView(ui.section("Détails d'une situation"))
+                  b.addView(ui.hint("Choisis la situation à régler : c'est aussi celle qui s'affiche en démonstration."))
+                  b.addView(ui.chips(null, Sub.names, { Sub.demoKind }, { Sub.demoKind = it }) { rebuild() })
+
+                  when (k) {
+                      Sub.MUSIC -> {
+                          b.addView(ui.chips("Texte affiché", listOf("Titre", "Artiste", "Artiste – Titre", "Titre – Artiste", "Titre · Artiste · Album"),
+                              { Sub.ki(k, "opt", 2) }, { Sub.kis(k, "opt", it) }))
+                          b.addView(ui.hint("Commandes affichées à droite :"))
+                          tog("prev", "⏮ Bouton précédent", true)
+                          tog("pp", "⏯ Bouton lecture / pause", true)
+                          tog("next", "⏭ Bouton suivant", true)
+                          tog("close", "✕ Bouton pour fermer (cache jusqu'au prochain titre)", false)
+                          tog("prog", "Fine barre de progression du morceau", true)
+                          b.addView(ui.slider("Rester affichée après la pause (0 = disparaît tout de suite)", 0, 120, { Sub.ki(k, "hold", 10) }, { Sub.kis(k, "hold", it) }, " s"))
+                      }
+                      Sub.CHARGE -> {
+                          b.addView(ui.edit("Texte", { Sub.ks(k, "label", "En charge") }, { Sub.kss(k, "label", it) }, "En charge"))
+                          tog("pct", "Afficher le pourcentage", true)
+                          tog("plug", "Afficher le type de chargeur (secteur, USB, sans fil)", true)
+                          tog("prog", "Fine barre de niveau de batterie", true)
+                          tog("close", "✕ Bouton pour fermer", false)
+                          b.addView(ui.slider("Durée d'affichage après le branchement (0 = tant que ça charge)", 0, 120, { Sub.ki(k, "dur", 8) }, { Sub.kis(k, "dur", it) }, " s"))
+                      }
+                      Sub.TORCH -> {
+                          b.addView(ui.edit("Texte", { Sub.ks(k, "label", "Lampe torche allumée") }, { Sub.kss(k, "label", it) }, "Lampe torche allumée"))
+                          tog("btn", "✕ Bouton pour éteindre la lampe", true)
+                      }
+                      Sub.NOTIF -> {
+                          tog("app", "Afficher le nom de l'appli", true)
+                          tog("cnt", "Afficher le nombre de notifications", true)
+                          tog("close", "✕ Bouton pour fermer", false)
+                          b.addView(ui.slider("Durée d'affichage après une nouvelle notification (0 = tant qu'il y en a)", 0, 60, { Sub.ki(k, "dur", 6) }, { Sub.kis(k, "dur", it) }, " s"))
+                      }
+                      else -> {
+                          b.addView(ui.edit("Ton message", { Sub.ks(k, "text", "Bonjour !") }, { Sub.kss(k, "text", it) }, "Bonjour !"))
+                          b.addView(ui.hint("Ce message est affiché en permanence tant que la situation est cochée. Il défile s'il est plus long que la barre."))
+                          tog("close", "✕ Bouton pour fermer", false)
+                      }
+                  }
+                  tog("ico", "Afficher une icône avant le texte", true)
+                  b.addView(ui.edit("Icône (emoji)", { Sub.ks(k, "icon", Sub.icons[k]) }, { Sub.kss(k, "icon", it) }, Sub.icons[k]))
+                  b.addView(ui.colorRow("Couleur de la progression", { Sub.accent(k) }, { Sub.kis(k, "acc", it) }))
+                  b.addView(ui.chips("Toucher la barre", Sub.actionNames, { Sub.ki(k, "tap", Sub.defTap(k)) }, { Sub.kis(k, "tap", it) }))
+                  b.addView(ui.chips("Appui long sur la barre", Sub.actionNames, { Sub.ki(k, "long", 0) }, { Sub.kis(k, "long", it) }))
+
+                  // ---- texte qui défile
+                  b.addView(ui.section("Texte qui défile"))
+                  b.addView(ui.hint("Quand le texte est plus long que la place disponible, il défile en boucle."))
+                  b.addView(ui.slider("Vitesse", 5, 200, { Sub.gi("spd", 40) }, { Sub.si("spd", it) }, " dp/s"))
+                  b.addView(ui.chips("Sens", listOf("◀ Vers la gauche", "Vers la droite ▶"), { Sub.gi("dir", 0) }, { Sub.si("dir", it) }))
+                  b.addView(ui.toggle("Faire défiler même un texte court", { Sub.gb("always", false) }, { Sub.sb("always", it) }))
+
+                  // ---- apparence
+                  b.addView(ui.section("Taille et position"))
+                  b.addView(ui.slider("Largeur", 100, 500, { Sub.gi("w", 300) }, { Sub.si("w", it) }, " dp"))
+                  b.addView(ui.slider("Hauteur", 20, 80, { Sub.gi("h", 36) }, { Sub.si("h", it) }, " dp"))
+                  b.addView(ui.slider("Distance sous la barre principale", -20, 200, { Sub.gi("gap", 6) }, { Sub.si("gap", it) }, " dp"))
+                  b.addView(ui.slider("Décalage horizontal", -300, 300, { Sub.gi("dx", 0) }, { Sub.si("dx", it) }, " dp"))
+                  b.addView(ui.hint("La sous-barre suit la barre principale : si tu déplaces celle-ci, l'autre suit."))
+
+                  b.addView(ui.section("Apparence"))
+                  b.addView(ui.colorRow("Fond", { Sub.gi("fill", 0xFF000000.toInt()) }, { Sub.si("fill", it) }))
+                  b.addView(ui.slider("Arrondi des coins", 0, 100, { Sub.gi("rad", 100) }, { Sub.si("rad", it) }, " %"))
+                  b.addView(ui.slider("Épaisseur de la bordure", 0, 8, { Sub.gi("bw", 0) }, { Sub.si("bw", it) }, " dp"))
+                  b.addView(ui.colorRow("Couleur de la bordure", { Sub.gi("bc", 0x66FFFFFF) }, { Sub.si("bc", it) }))
+                  b.addView(ui.colorRow("Couleur du texte et des boutons", { Sub.gi("tc", 0xFFFFFFFF.toInt()) }, { Sub.si("tc", it) }))
+                  b.addView(ui.slider("Taille du texte", 8, 28, { Sub.gi("ts", 13) }, { Sub.si("ts", it) }, " dp"))
+                  b.addView(ui.toggle("Texte en gras", { Sub.gb("bold", false) }, { Sub.sb("bold", it) }))
+                  b.addView(ui.slider("Durée de l'animation d'apparition (0 = aucune)", 0, 800, { Sub.gi("anim", 250) }, { Sub.si("anim", it) }, " ms"))
+
+                  b.addView(ui.section("Remise à zéro"))
+                  b.addView(ui.buttons(listOf("♻️ Réinitialiser la sous-barre")) {
+                      Store.cfg.psClear("sb_")
+                      for (n in 0 until Sub.COUNT) Store.cfg.psClear("sb" + n + "_")
+                      commit()
+                      rebuild()
+                  })
                   return b
               }
 
@@ -7335,6 +7485,820 @@ jobs:
               }
           }
           KOTLIN_EOF
+          mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/SubBar.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.accessibilityservice.AccessibilityService
+          import android.content.ComponentName
+          import android.content.Context
+          import android.content.Intent
+          import android.content.IntentFilter
+          import android.graphics.Canvas
+          import android.graphics.Paint
+          import android.graphics.Path
+          import android.graphics.PixelFormat
+          import android.graphics.RectF
+          import android.media.MediaMetadata
+          import android.media.session.MediaController
+          import android.media.session.MediaSessionManager
+          import android.media.session.PlaybackState
+          import android.os.BatteryManager
+          import android.os.Build
+          import android.os.Handler
+          import android.os.Looper
+          import android.os.SystemClock
+          import android.view.Gravity
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.ViewConfiguration
+          import android.view.WindowManager
+          import kotlin.math.abs
+
+          /** Réglages de la sous-barre : rangés dans la config sous les préfixes "sb_" (général) et "sb0_" à "sb4_" (un par déclencheur) */
+          object Sub {
+              const val MUSIC = 0
+              const val CHARGE = 1
+              const val TORCH = 2
+              const val NOTIF = 3
+              const val CUSTOM = 4
+              const val COUNT = 5
+
+              /** Boutons que la sous-barre peut afficher */
+              const val B_PREV = 1
+              const val B_PLAY = 2
+              const val B_PAUSE = 3
+              const val B_NEXT = 4
+              const val B_CLOSE = 5
+              const val B_TORCH = 6
+
+              /** Actions en plus de celles de la barre principale (numéros 0 à 10) */
+              const val ACT_OPEN = 11
+              const val ACT_HIDE = 12
+
+              val names = listOf("🎵 Musique", "⚡ Charge", "🔦 Lampe torche", "🔔 Notifications", "✨ Message perso")
+              val icons = listOf("🎵", "⚡", "🔦", "🔔", "✨")
+              val accents = intArrayOf(0xFFE040FB.toInt(), 0xFF00E676.toInt(), 0xFFFFEA00.toInt(), 0xFF18FFFF.toInt(), 0xFFFF4081.toInt())
+              val actionNames: List<String> = Actions.names + listOf("Ouvrir l'appli concernée", "Masquer la sous-barre")
+
+              /** Vrai pendant que l'onglet Sous-barre est ouvert : la sous-barre s'affiche en démonstration */
+              @Volatile
+              var edit = false
+
+              /** Déclencheur montré en démonstration (et réglé) dans l'onglet */
+              @Volatile
+              var demoKind = 0
+
+              // ----- réglages généraux -----
+              fun gi(k: String, d: Int): Int = Store.cfg.psInt("sb_", k, d)
+              fun si(k: String, v: Int) = Store.cfg.psSetInt("sb_", k, v)
+              fun gb(k: String, d: Boolean): Boolean = Store.cfg.psBool("sb_", k, d)
+              fun sb(k: String, v: Boolean) = Store.cfg.psSetBool("sb_", k, v)
+              fun gs(k: String, d: String): String = Store.cfg.psStr("sb_", k, d)
+              fun ss(k: String, v: String) = Store.cfg.psSetStr("sb_", k, v)
+
+              // ----- réglages d'un déclencheur -----
+              fun ki(n: Int, k: String, d: Int): Int = Store.cfg.psInt("sb" + n + "_", k, d)
+              fun kis(n: Int, k: String, v: Int) = Store.cfg.psSetInt("sb" + n + "_", k, v)
+              fun kb(n: Int, k: String, d: Boolean): Boolean = Store.cfg.psBool("sb" + n + "_", k, d)
+              fun kbs(n: Int, k: String, v: Boolean) = Store.cfg.psSetBool("sb" + n + "_", k, v)
+              fun ks(n: Int, k: String, d: String): String = Store.cfg.psStr("sb" + n + "_", k, d)
+              fun kss(n: Int, k: String, v: String) = Store.cfg.psSetStr("sb" + n + "_", k, v)
+
+              /** Seule la musique est activée au départ : la personne choisit le reste */
+              fun enabled(n: Int): Boolean = kb(n, "on", n == MUSIC)
+
+              fun accent(n: Int): Int = ki(n, "acc", accents[n])
+
+              fun icon(n: Int): String = if (kb(n, "ico", true)) ks(n, "icon", icons[n]) else ""
+
+              fun defTap(n: Int): Int = when (n) {
+                  MUSIC -> ACT_OPEN
+                  NOTIF -> 1
+                  else -> 0
+              }
+
+              /** Ordre de priorité des déclencheurs quand plusieurs sont actifs en même temps */
+              fun order(): List<Int> {
+                  val out = ArrayList<Int>()
+                  for (s in gs("order", "0,1,2,3,4").split(",")) {
+                      val n = s.trim().toIntOrNull() ?: continue
+                      if (n in 0 until COUNT && !out.contains(n)) out.add(n)
+                  }
+                  for (n in 0 until COUNT) {
+                      if (!out.contains(n)) out.add(n)
+                  }
+                  return out
+              }
+
+              fun move(n: Int, delta: Int) {
+                  val l = order().toMutableList()
+                  val i = l.indexOf(n)
+                  val j = i + delta
+                  if (i < 0 || j < 0 || j >= l.size) return
+                  l.removeAt(i)
+                  l.add(j, n)
+                  ss("order", l.joinToString(","))
+              }
+          }
+
+          /** Ce que la sous-barre affiche à un instant donné */
+          class SubInfo(val kind: Int, val text: String, val icon: String, val accent: Int, val sig: String) {
+              /** Progression de 0 à 1, ou -1 s'il n'y a pas de barre de progression */
+              var frac = -1f
+              var playing = false
+              var pkg = ""
+              var btns: IntArray = IntArray(0)
+          }
+
+          /** La barre elle-même : forme arrondie, icône, texte qui défile, boutons, fine barre de progression */
+          class SubBarView(ctx: Context) : View(ctx) {
+              private val d = ctx.resources.displayMetrics.density
+              private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val line = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val tp = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val ip = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val box = RectF()
+              private val clip = Path()
+              private val pth = Path()
+              private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
+              private val handler = Handler(Looper.getMainLooper())
+
+              var info: SubInfo? = null
+                  private set
+              var onButton: (Int) -> Unit = {}
+              var onBody: (Boolean) -> Unit = {}
+
+              private var scrollT0 = 0L
+              private var btnL = FloatArray(0)
+              private var btnW = 0f
+              private var downX = 0f
+              private var downY = 0f
+              private var pressed = 0
+              private var longFired = false
+              private var cancelled = false
+
+              private val longRun = Runnable {
+                  longFired = true
+                  onBody(true)
+              }
+
+              init {
+                  tp.textAlign = Paint.Align.LEFT
+                  ip.style = Paint.Style.FILL
+              }
+
+              fun setInfo(i: SubInfo?) {
+                  val old = info
+                  info = i
+                  if (i != null && (old == null || old.text != i.text || old.kind != i.kind)) scrollT0 = SystemClock.uptimeMillis()
+                  invalidate()
+              }
+
+              private fun hitBtn(x: Float): Int {
+                  val inf = info ?: return 0
+                  if (btnL.size != inf.btns.size) return 0
+                  for (k in btnL.indices) {
+                      if (x >= btnL[k] && x <= btnL[k] + btnW) return inf.btns[k]
+                  }
+                  return 0
+              }
+
+              override fun onTouchEvent(e: MotionEvent): Boolean {
+                  if (info == null) return false
+                  when (e.actionMasked) {
+                      MotionEvent.ACTION_DOWN -> {
+                          downX = e.x
+                          downY = e.y
+                          longFired = false
+                          cancelled = false
+                          pressed = hitBtn(e.x)
+                          if (pressed == 0) handler.postDelayed(longRun, ViewConfiguration.getLongPressTimeout().toLong())
+                          invalidate()
+                          return true
+                      }
+                      MotionEvent.ACTION_MOVE -> {
+                          if (!cancelled && (abs(e.x - downX) > slop || abs(e.y - downY) > slop)) {
+                              cancelled = true
+                              handler.removeCallbacks(longRun)
+                          }
+                      }
+                      MotionEvent.ACTION_UP -> {
+                          handler.removeCallbacks(longRun)
+                          val p = pressed
+                          pressed = 0
+                          if (!longFired && !cancelled) {
+                              if (p != 0) onButton(p) else onBody(false)
+                          }
+                          invalidate()
+                      }
+                      MotionEvent.ACTION_CANCEL -> {
+                          handler.removeCallbacks(longRun)
+                          pressed = 0
+                          invalidate()
+                      }
+                  }
+                  return true
+              }
+
+              override fun onDetachedFromWindow() {
+                  handler.removeCallbacks(longRun)
+                  super.onDetachedFromWindow()
+              }
+
+              private fun drawBtn(c: Canvas, id: Int, cx: Float, cy: Float, s: Float) {
+                  pth.reset()
+                  when (id) {
+                      Sub.B_PREV -> {
+                          c.drawRect(cx - s * 0.62f, cy - s * 0.6f, cx - s * 0.38f, cy + s * 0.6f, ip)
+                          pth.moveTo(cx + s * 0.6f, cy - s * 0.6f)
+                          pth.lineTo(cx + s * 0.6f, cy + s * 0.6f)
+                          pth.lineTo(cx - s * 0.3f, cy)
+                          pth.close()
+                          c.drawPath(pth, ip)
+                      }
+                      Sub.B_NEXT -> {
+                          c.drawRect(cx + s * 0.38f, cy - s * 0.6f, cx + s * 0.62f, cy + s * 0.6f, ip)
+                          pth.moveTo(cx - s * 0.6f, cy - s * 0.6f)
+                          pth.lineTo(cx - s * 0.6f, cy + s * 0.6f)
+                          pth.lineTo(cx + s * 0.3f, cy)
+                          pth.close()
+                          c.drawPath(pth, ip)
+                      }
+                      Sub.B_PLAY -> {
+                          pth.moveTo(cx - s * 0.45f, cy - s * 0.7f)
+                          pth.lineTo(cx - s * 0.45f, cy + s * 0.7f)
+                          pth.lineTo(cx + s * 0.65f, cy)
+                          pth.close()
+                          c.drawPath(pth, ip)
+                      }
+                      Sub.B_PAUSE -> {
+                          c.drawRect(cx - s * 0.5f, cy - s * 0.65f, cx - s * 0.15f, cy + s * 0.65f, ip)
+                          c.drawRect(cx + s * 0.15f, cy - s * 0.65f, cx + s * 0.5f, cy + s * 0.65f, ip)
+                      }
+                      else -> {
+                          // croix (fermer, éteindre la lampe)
+                          ip.style = Paint.Style.STROKE
+                          ip.strokeWidth = s * 0.28f
+                          ip.strokeCap = Paint.Cap.ROUND
+                          c.drawLine(cx - s * 0.5f, cy - s * 0.5f, cx + s * 0.5f, cy + s * 0.5f, ip)
+                          c.drawLine(cx - s * 0.5f, cy + s * 0.5f, cx + s * 0.5f, cy - s * 0.5f, ip)
+                          ip.style = Paint.Style.FILL
+                      }
+                  }
+              }
+
+              override fun onDraw(canvas: Canvas) {
+                  val inf = info ?: return
+                  val w = width.toFloat()
+                  val h = height.toFloat()
+                  if (w < 2f || h < 2f) return
+
+                  val rad = Sub.gi("rad", 100).coerceIn(0, 100) / 100f * h / 2f
+                  val bw = Sub.gi("bw", 0) * d
+
+                  // fond
+                  fill.style = Paint.Style.FILL
+                  fill.color = Sub.gi("fill", 0xFF000000.toInt())
+                  box.set(0f, 0f, w, h)
+                  canvas.drawRoundRect(box, rad, rad, fill)
+
+                  // fine barre de progression en bas, découpée dans la forme arrondie
+                  if (inf.frac >= 0f) {
+                      clip.reset()
+                      clip.addRoundRect(box, rad, rad, Path.Direction.CW)
+                      canvas.save()
+                      canvas.clipPath(clip)
+                      line.style = Paint.Style.FILL
+                      line.color = inf.accent
+                      canvas.drawRect(0f, h - 3f * d, w * inf.frac.coerceIn(0f, 1f), h, line)
+                      canvas.restore()
+                  }
+
+                  // bordure
+                  if (bw > 0f) {
+                      box.set(bw / 2f, bw / 2f, w - bw / 2f, h - bw / 2f)
+                      line.style = Paint.Style.STROKE
+                      line.strokeWidth = bw
+                      line.color = Sub.gi("bc", 0x66FFFFFF)
+                      canvas.drawRoundRect(box, rad, rad, line)
+                  }
+
+                  val textColor = Sub.gi("tc", 0xFFFFFFFF.toInt())
+                  tp.textSize = Sub.gi("ts", 13) * d
+                  tp.isFakeBoldText = Sub.gb("bold", false)
+                  tp.color = textColor
+                  val padL = maxOf(rad * 0.7f, 10f * d)
+                  val cy = h / 2f
+                  val base = cy - (tp.ascent() + tp.descent()) / 2f
+                  var left = padL
+
+                  // icône
+                  if (inf.icon.isNotEmpty()) {
+                      canvas.drawText(inf.icon, left, base, tp)
+                      left += tp.measureText(inf.icon) + 7f * d
+                  }
+
+                  // boutons, alignés à droite
+                  val n = inf.btns.size
+                  val slot = minOf(h * 0.95f, 40f * d)
+                  btnW = slot
+                  if (btnL.size != n) btnL = FloatArray(n)
+                  val startX = w - padL * 0.6f - n * slot
+                  for (k in 0 until n) {
+                      btnL[k] = startX + k * slot
+                      ip.color = textColor
+                      if (pressed == inf.btns[k]) ip.alpha = 110
+                      drawBtn(canvas, inf.btns[k], btnL[k] + slot / 2f, cy, slot * 0.27f)
+                  }
+
+                  // texte : défile s'il est trop long (ou toujours si demandé), sinon centré
+                  val tx0 = left
+                  val tx1 = if (n > 0) startX - 4f * d else w - padL
+                  val aw = tx1 - tx0
+                  var scrolling = false
+                  if (aw > 4f && inf.text.isNotEmpty()) {
+                      val tw = tp.measureText(inf.text)
+                      canvas.save()
+                      canvas.clipRect(tx0, 0f, tx1, h)
+                      if (tw > aw || Sub.gb("always", false)) {
+                          scrolling = true
+                          val period = tw + 48f * d
+                          val spd = Sub.gi("spd", 40).coerceIn(5, 300) * d
+                          val t = SystemClock.uptimeMillis() - scrollT0
+                          val off = if (t < 1200L) 0f else ((t - 1200L) / 1000f * spd) % period
+                          var x = if (Sub.gi("dir", 0) == 0) tx0 - off else tx0 - period + off
+                          while (x < tx1) {
+                              if (x + tw > tx0) canvas.drawText(inf.text, x, base, tp)
+                              x += period
+                          }
+                      } else {
+                          canvas.drawText(inf.text, tx0 + (aw - tw) / 2f, base, tp)
+                      }
+                      canvas.restore()
+                  }
+                  if (scrolling) postInvalidateOnAnimation()
+              }
+          }
+
+          /** Gère la fenêtre de la sous-barre : l'affiche sous la barre principale quand un déclencheur est actif, la cache sinon */
+          class SubBarController(
+              private val svc: AccessibilityService,
+              private val wm: WindowManager,
+              private val torchOn: () -> Boolean,
+              private val toggleTorch: () -> Unit,
+              private val act: (Int) -> Unit
+          ) {
+              private val handler = Handler(Looper.getMainLooper())
+              private val d = svc.resources.displayMetrics.density
+              private val view = SubBarView(svc)
+              private var lp: WindowManager.LayoutParams? = null
+              private var added = false
+              private var allowed = false
+              private var shown = false
+              private var cur: SubInfo? = null
+              private val dis = arrayOfNulls<String>(Sub.COUNT)
+              private val labels = HashMap<String, String>()
+
+              // état musique
+              private var ctl: MediaController? = null
+              private var lastPkg = ""
+              private var lastPlayAt = 0L
+
+              // état charge
+              private var wasPlugged = false
+              private var plugAt = 0L
+
+              // état lampe
+              private var torchSince = 0L
+
+              // état notifications
+              private var lastCount = -1
+              private var notifAt = -1000000000L
+
+              private val tick = Runnable { evaluate() }
+
+              init {
+                  view.onButton = { id -> button(id) }
+                  view.onBody = { long -> body(long) }
+              }
+
+              fun start() {
+                  stop()
+                  val l = makeLp()
+                  lp = l
+                  view.visibility = View.INVISIBLE
+                  shown = false
+                  try {
+                      wm.addView(view, l)
+                      added = true
+                  } catch (e: Exception) {
+                      added = false
+                  }
+              }
+
+              fun stop() {
+                  handler.removeCallbacks(tick)
+                  view.animate().cancel()
+                  if (added) {
+                      try { wm.removeView(view) } catch (e: Exception) {}
+                      added = false
+                  }
+                  shown = false
+                  cur = null
+              }
+
+              private fun makeLp(): WindowManager.LayoutParams {
+                  val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                      WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                      WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                      WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                  val l = WindowManager.LayoutParams(
+                      10, 10,
+                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                      flags,
+                      PixelFormat.TRANSLUCENT
+                  )
+                  l.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                  if (Build.VERSION.SDK_INT >= 30) {
+                      l.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                  } else if (Build.VERSION.SDK_INT >= 28) {
+                      l.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                  }
+                  return l
+              }
+
+              /** Relit les réglages : taille et position (sous la barre principale), puis réévalue ce qu'il faut afficher */
+              fun apply() {
+                  if (!added) return
+                  val l = lp ?: return
+                  val c = Store.cfg
+                  l.width = (Sub.gi("w", 300) * d).toInt().coerceAtLeast(1)
+                  l.height = (Sub.gi("h", 36) * d).toInt().coerceAtLeast(1)
+                  l.x = ((c.offX + Sub.gi("dx", 0)) * d).toInt()
+                  l.y = ((c.offY + c.height + Sub.gi("gap", 6)) * d).toInt()
+                  try { wm.updateViewLayout(view, l) } catch (e: Exception) {}
+                  view.invalidate()
+                  evaluate()
+              }
+
+              /** La barre principale est visible (pas masquée, pas remplacée par le masque, écran allumé) */
+              fun setAllowed(v: Boolean) {
+                  if (allowed == v) return
+                  allowed = v
+                  evaluate()
+              }
+
+              private val pokeRun = Runnable { evaluate() }
+
+              /** Quelque chose a changé (lampe, notification…) : réévalue sans attendre le prochain passage */
+              fun poke() {
+                  if (!added) return
+                  handler.removeCallbacks(pokeRun)
+                  handler.postDelayed(pokeRun, 150L)
+              }
+
+              private fun setTouch(on: Boolean) {
+                  val l = lp ?: return
+                  var fl = l.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                  fl = fl and WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL.inv()
+                  fl = fl or (if (on) WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+                  if (fl == l.flags) return
+                  l.flags = fl
+                  try { wm.updateViewLayout(view, l) } catch (e: Exception) {}
+              }
+
+              fun evaluate() {
+                  if (!added) return
+                  handler.removeCallbacks(tick)
+                  val live = allowed && Sub.gb("on", true)
+                  val inf: SubInfo? = if (Sub.edit) demo(Sub.demoKind) else if (live) pick() else null
+                  if (inf == null) hide() else show(inf)
+                  var any = false
+                  for (k in 0 until Sub.COUNT) {
+                      if (Sub.enabled(k)) any = true
+                  }
+                  if ((live && any) || Sub.edit) handler.postDelayed(tick, if (inf != null) 500L else 1000L)
+              }
+
+              private fun show(inf: SubInfo) {
+                  cur = inf
+                  view.setInfo(inf)
+                  if (!shown) {
+                      shown = true
+                      val ms = Sub.gi("anim", 250).toLong()
+                      view.animate().cancel()
+                      if (view.visibility != View.VISIBLE) {
+                          val h = lp?.height ?: 40
+                          view.alpha = if (ms > 0L) 0f else 1f
+                          view.translationY = if (ms > 0L) -h * 0.8f else 0f
+                          view.visibility = View.VISIBLE
+                      }
+                      if (ms > 0L) view.animate().alpha(1f).translationY(0f).setDuration(ms).start()
+                  }
+                  setTouch(!Sub.edit)
+              }
+
+              private fun hide() {
+                  cur = null
+                  if (!shown) return
+                  shown = false
+                  setTouch(false)
+                  val ms = Sub.gi("anim", 250).toLong()
+                  view.animate().cancel()
+                  if (ms <= 0L) {
+                      view.visibility = View.INVISIBLE
+                      return
+                  }
+                  val h = lp?.height ?: 40
+                  view.animate().alpha(0f).translationY(-h * 0.8f).setDuration(ms).withEndAction {
+                      if (!shown) {
+                          view.visibility = View.INVISIBLE
+                          view.alpha = 1f
+                          view.translationY = 0f
+                      }
+                  }.start()
+              }
+
+              // ------------------------------------------------------------ choix de ce qui s'affiche
+
+              /** Lit tous les déclencheurs activés (pour suivre leur état), puis garde celui qui passe en premier, ou les fait tourner */
+              private fun pick(): SubInfo? {
+                  val found = HashMap<Int, SubInfo>()
+                  for (k in 0 until Sub.COUNT) {
+                      if (!Sub.enabled(k)) continue
+                      val i = try {
+                          read(k)
+                      } catch (e: Exception) {
+                          null
+                      }
+                      if (i != null) found[k] = i
+                  }
+                  val actives = ArrayList<SubInfo>()
+                  for (k in Sub.order()) {
+                      val i = found[k]
+                      if (i != null) actives.add(i)
+                  }
+                  if (actives.isEmpty()) return null
+                  if (actives.size == 1 || !Sub.gb("rot", false)) return actives[0]
+                  val ms = Sub.gi("rotms", 5).coerceIn(2, 60) * 1000L
+                  return actives[((SystemClock.elapsedRealtime() / ms) % actives.size).toInt()]
+              }
+
+              private fun read(k: Int): SubInfo? = when (k) {
+                  Sub.MUSIC -> readMusic()
+                  Sub.CHARGE -> readCharge()
+                  Sub.TORCH -> readTorch()
+                  Sub.NOTIF -> readNotif()
+                  else -> readCustom()
+              }
+
+              private fun appLabel(pkg: String): String {
+                  val old = labels[pkg]
+                  if (old != null) return old
+                  val s = try {
+                      val pm = svc.packageManager
+                      pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+                  } catch (e: Exception) {
+                      pkg
+                  }
+                  labels[pkg] = s
+                  return s
+              }
+
+              // ----- musique -----
+
+              private fun buildMusic(title: String, artist: String, album: String, pkg: String, playing: Boolean, frac: Float): SubInfo {
+                  var t = when (Sub.ki(Sub.MUSIC, "opt", 2)) {
+                      0 -> title
+                      1 -> artist
+                      3 -> if (artist.isEmpty()) title else title + " – " + artist
+                      4 -> listOf(title, artist, album).filter { it.isNotEmpty() }.joinToString(" · ")
+                      else -> if (artist.isEmpty()) title else artist + " – " + title
+                  }
+                  if (t.isEmpty()) t = if (pkg.isEmpty()) "Lecture en cours" else appLabel(pkg)
+                  val inf = SubInfo(Sub.MUSIC, t, Sub.icon(Sub.MUSIC), Sub.accent(Sub.MUSIC), "m" + title + "|" + artist)
+                  inf.pkg = pkg
+                  inf.playing = playing
+                  inf.frac = if (Sub.kb(Sub.MUSIC, "prog", true)) frac else -1f
+                  val b = ArrayList<Int>()
+                  if (Sub.kb(Sub.MUSIC, "prev", true)) b.add(Sub.B_PREV)
+                  if (Sub.kb(Sub.MUSIC, "pp", true)) b.add(if (playing) Sub.B_PAUSE else Sub.B_PLAY)
+                  if (Sub.kb(Sub.MUSIC, "next", true)) b.add(Sub.B_NEXT)
+                  if (Sub.kb(Sub.MUSIC, "close", false)) b.add(Sub.B_CLOSE)
+                  inf.btns = b.toIntArray()
+                  return inf
+              }
+
+              private fun readMusic(): SubInfo? {
+                  val msm = svc.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+                  val list = msm.getActiveSessions(ComponentName(svc, NotifListener::class.java))
+                  val now = SystemClock.elapsedRealtime()
+                  var c: MediaController? = list.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+                  val playing = c != null
+                  if (c != null) {
+                      lastPlayAt = now
+                      lastPkg = c.packageName
+                  } else {
+                      val hold = Sub.ki(Sub.MUSIC, "hold", 10) * 1000L
+                      if (hold > 0L && lastPkg.isNotEmpty() && now - lastPlayAt < hold) {
+                          c = list.firstOrNull { it.packageName == lastPkg && it.playbackState?.state == PlaybackState.STATE_PAUSED }
+                      }
+                  }
+                  if (c == null) {
+                      ctl = null
+                      return null
+                  }
+                  ctl = c
+                  val md = c.metadata
+                  val title = md?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+                  val artist = md?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""
+                  val album = md?.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
+                  var frac = -1f
+                  val dur = md?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+                  val pb = c.playbackState
+                  if (dur > 0L && pb != null && pb.position >= 0L) {
+                      var pos = pb.position
+                      if (pb.state == PlaybackState.STATE_PLAYING) {
+                          pos += ((SystemClock.elapsedRealtime() - pb.lastPositionUpdateTime) * pb.playbackSpeed).toLong()
+                      }
+                      frac = (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+                  }
+                  val inf = buildMusic(title, artist, album, c.packageName, playing, frac)
+                  if (dis[Sub.MUSIC] == inf.sig) return null
+                  return inf
+              }
+
+              // ----- charge -----
+
+              private fun buildCharge(pct: Int, plugType: Int, full: Boolean): SubInfo {
+                  val parts = ArrayList<String>()
+                  val label = Sub.ks(Sub.CHARGE, "label", "En charge")
+                  parts.add(if (full) "Chargé" else label)
+                  if (Sub.kb(Sub.CHARGE, "pct", true)) parts.add(pct.toString() + " %")
+                  if (Sub.kb(Sub.CHARGE, "plug", true)) {
+                      when (plugType) {
+                          1 -> parts.add("Secteur")
+                          2 -> parts.add("USB")
+                          4 -> parts.add("Sans fil")
+                      }
+                  }
+                  val inf = SubInfo(Sub.CHARGE, parts.joinToString(" · "), Sub.icon(Sub.CHARGE), Sub.accent(Sub.CHARGE), "p" + plugAt)
+                  inf.frac = if (Sub.kb(Sub.CHARGE, "prog", true)) pct / 100f else -1f
+                  val b = ArrayList<Int>()
+                  if (Sub.kb(Sub.CHARGE, "close", false)) b.add(Sub.B_CLOSE)
+                  inf.btns = b.toIntArray()
+                  return inf
+              }
+
+              private fun readCharge(): SubInfo? {
+                  val i = svc.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
+                  val lvl = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                  val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+                  val pct = if (lvl >= 0 && scale > 0) lvl * 100 / scale else 0
+                  val plug = i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
+                  val full = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1) == BatteryManager.BATTERY_STATUS_FULL
+                  val now = SystemClock.elapsedRealtime()
+                  val isPlugged = plug != 0
+                  if (isPlugged && !wasPlugged) plugAt = now
+                  wasPlugged = isPlugged
+                  if (!isPlugged) return null
+                  val dur = Sub.ki(Sub.CHARGE, "dur", 8)
+                  if (dur > 0 && now - plugAt > dur * 1000L) return null
+                  val inf = buildCharge(pct, plug, full)
+                  if (dis[Sub.CHARGE] == inf.sig) return null
+                  return inf
+              }
+
+              // ----- lampe torche -----
+
+              private fun buildTorch(): SubInfo {
+                  val inf = SubInfo(Sub.TORCH, Sub.ks(Sub.TORCH, "label", "Lampe torche allumée"), Sub.icon(Sub.TORCH), Sub.accent(Sub.TORCH), "t" + torchSince)
+                  val b = ArrayList<Int>()
+                  if (Sub.kb(Sub.TORCH, "btn", true)) b.add(Sub.B_TORCH)
+                  inf.btns = b.toIntArray()
+                  return inf
+              }
+
+              private fun readTorch(): SubInfo? {
+                  if (!torchOn()) {
+                      torchSince = 0L
+                      return null
+                  }
+                  if (torchSince == 0L) torchSince = SystemClock.elapsedRealtime()
+                  val inf = buildTorch()
+                  if (dis[Sub.TORCH] == inf.sig) return null
+                  return inf
+              }
+
+              // ----- notifications -----
+
+              private fun buildNotif(app: String, count: Int, pkg: String): SubInfo {
+                  val parts = ArrayList<String>()
+                  if (Sub.kb(Sub.NOTIF, "app", true) && app.isNotEmpty()) parts.add(app)
+                  if (Sub.kb(Sub.NOTIF, "cnt", true)) parts.add(if (count == 1) "1 notification" else count.toString() + " notifications")
+                  if (parts.isEmpty()) parts.add("Nouvelle notification")
+                  val inf = SubInfo(Sub.NOTIF, parts.joinToString(" · "), Sub.icon(Sub.NOTIF), Sub.accent(Sub.NOTIF), "n" + notifAt)
+                  inf.pkg = pkg
+                  val b = ArrayList<Int>()
+                  if (Sub.kb(Sub.NOTIF, "close", false)) b.add(Sub.B_CLOSE)
+                  inf.btns = b.toIntArray()
+                  return inf
+              }
+
+              private fun readNotif(): SubInfo? {
+                  val items = NotifState.items
+                  val n = items.sumOf { it.count }
+                  val now = SystemClock.elapsedRealtime()
+                  if (lastCount < 0) lastCount = n
+                  else if (n > lastCount) notifAt = now
+                  lastCount = n
+                  if (n == 0) return null
+                  val dur = Sub.ki(Sub.NOTIF, "dur", 6)
+                  if (dur > 0 && now - notifAt > dur * 1000L) return null
+                  val latest = items.maxByOrNull { it.time } ?: return null
+                  val inf = buildNotif(appLabel(latest.pkg), n, latest.pkg)
+                  if (dis[Sub.NOTIF] == inf.sig) return null
+                  return inf
+              }
+
+              // ----- message perso -----
+
+              private fun buildCustom(): SubInfo? {
+                  val t = Sub.ks(Sub.CUSTOM, "text", "Bonjour !")
+                  if (t.isEmpty()) return null
+                  val inf = SubInfo(Sub.CUSTOM, t, Sub.icon(Sub.CUSTOM), Sub.accent(Sub.CUSTOM), "c")
+                  val b = ArrayList<Int>()
+                  if (Sub.kb(Sub.CUSTOM, "close", false)) b.add(Sub.B_CLOSE)
+                  inf.btns = b.toIntArray()
+                  return inf
+              }
+
+              private fun readCustom(): SubInfo? {
+                  val inf = buildCustom() ?: return null
+                  if (dis[Sub.CUSTOM] == inf.sig) return null
+                  return inf
+              }
+
+              // ----- démonstration (onglet de réglage ouvert) -----
+
+              private fun demo(k: Int): SubInfo? = when (k) {
+                  Sub.MUSIC -> buildMusic("Harder, Better, Faster, Stronger (Live)", "Daft Punk", "Alive 2007", "", true, 0.4f)
+                  Sub.CHARGE -> buildCharge(72, 1, false)
+                  Sub.TORCH -> buildTorch()
+                  Sub.NOTIF -> buildNotif("Messages", 3, "")
+                  else -> buildCustom()
+              }
+
+              // ------------------------------------------------------------ actions
+
+              private fun button(id: Int) {
+                  if (Sub.edit) return
+                  try {
+                      val c = ctl
+                      when (id) {
+                          Sub.B_PREV -> c?.transportControls?.skipToPrevious()
+                          Sub.B_NEXT -> c?.transportControls?.skipToNext()
+                          Sub.B_PLAY -> c?.transportControls?.play()
+                          Sub.B_PAUSE -> c?.transportControls?.pause()
+                          Sub.B_TORCH -> toggleTorch()
+                          Sub.B_CLOSE -> dismiss()
+                      }
+                  } catch (e: Exception) {
+                  }
+                  handler.postDelayed({ evaluate() }, 250L)
+              }
+
+              private fun body(long: Boolean) {
+                  if (Sub.edit) return
+                  val c = cur ?: return
+                  val id = Sub.ki(c.kind, if (long) "long" else "tap", if (long) 0 else Sub.defTap(c.kind))
+                  when (id) {
+                      0 -> {}
+                      Sub.ACT_OPEN -> openApp(c.pkg)
+                      Sub.ACT_HIDE -> dismiss()
+                      else -> act(id)
+                  }
+              }
+
+              /** Cache ce qui est affiché jusqu'au prochain changement (autre titre, nouvelle charge, nouvelle notification…) */
+              private fun dismiss() {
+                  val c = cur ?: return
+                  dis[c.kind] = c.sig
+                  evaluate()
+              }
+
+              private fun openApp(pkg: String) {
+                  if (pkg.isEmpty()) return
+                  try {
+                      val i = svc.packageManager.getLaunchIntentForPackage(pkg) ?: return
+                      i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                      svc.startActivity(i)
+                  } catch (e: Exception) {
+                  }
+              }
+          }
+          KOTLIN_EOF
           mkdir -p app
           cat > app/build.gradle.kts <<'KOTLIN_EOF'
           plugins {
@@ -7350,8 +8314,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 35
-                  versionName = "3.4.0"
+                  versionCode = 36
+                  versionName = "3.5.0"
               }
 
               compileOptions {
