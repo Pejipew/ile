@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 3.5.0 (${{ github.sha }})
+run-name: Build APK 3.6.0 (${{ github.sha }})
 
 on:
   push:
@@ -215,7 +215,7 @@ jobs:
           object Actions {
               val names = listOf(
                   "Rien", "Panneau de notifications", "Réglages rapides", "Ouvrir cette appli", "Verrouiller l'écran",
-                  "Capture d'écran", "Applis récentes", "Accueil", "Retour", "Lampe torche", "Appareil photo"
+                  "Capture d'écran", "Applis récentes", "Accueil", "Retour", "Lampe torche", "Appareil photo", "Afficher / cacher le masque"
               )
           }
 
@@ -5459,6 +5459,10 @@ jobs:
               private var lastOff = false
               private var lastMaskShow = true
               private var haloAnim: ValueAnimator? = null
+
+              /** Choix fait d'un appui sur l'encoche : 1 masque forcé, 0 masque enlevé, -1 automatique */
+              @Volatile
+              private var manual = -1
               private val pas = Array(10) { PastilleView(svc, it) }
               private var bdMode = 0
               private var bdTop = true
@@ -5814,9 +5818,11 @@ jobs:
                   val hidden = (c.hideAod && aod) || (c.hideLock && locked) || (c.hideLand && land)
 
                   // le masque remplace la barre dans les applis choisies (et pendant le réglage du masque)
+                  // le choix fait d'un appui sur l'encoche est remis en automatique au verrouillage et au changement d'appli
+                  if (aod || locked) manual = -1
                   val inApp = c.maskOn && !aod && !locked && fgPkg.isNotEmpty() && c.maskApps.contains(fgPkg)
-                  val replace = Store.maskEdit || inApp
-                  val maskShow = replace || (c.maskOn && c.maskWhenHidden && hidden)
+                  val replace = Store.maskEdit || (manual == 1 && !hidden) || (inApp && manual != 0)
+                  val maskShow = replace || (c.maskOn && c.maskWhenHidden && hidden && manual != 0)
                   val off = hidden || replace
 
                   // transition entre la barre et le masque : la forme se transforme, ou simple fondu
@@ -5839,7 +5845,6 @@ jobs:
                               fadeTo(bar, false, ms / 2, 0L)
                           }
                           fadeTo(halo, false, ms, 0L)
-                          fadeTo(notch, false, ms, 0L)
                           fadeTo(side, false, ms, 0L)
                       } else if (morph && !maskShow && lastMaskShow && lastOff && !off) {
                           startMorph(false, ms)
@@ -5852,7 +5857,6 @@ jobs:
                               fadeTo(bar, true, ms / 2, ms / 2)
                           }
                           relightHalo(ms / 2, ms / 2)
-                          fadeTo(notch, true, ms, 0L)
                           fadeTo(side, true, ms, 0L)
                       } else {
                           mask.cancelMorph()
@@ -5874,7 +5878,6 @@ jobs:
                               }
                           }
                           if (off) fadeTo(halo, false, ms, 0L) else relightHalo(0L, ms)
-                          fadeTo(notch, !off, ms, 0L)
                           fadeTo(side, !off, ms, 0L)
                           fadeTo(mask, maskShow, ms, 0L)
                           if (maskShow && !lastMaskShow) mask.bounceIn(c.maskBounce, c.maskBounceAmp)
@@ -5888,6 +5891,9 @@ jobs:
                       val show = false
                       pas[i].visibility = if (show) View.VISIBLE else View.INVISIBLE
                   }
+                  // la zone tactile de l'encoche reste active pendant le masque si une action sert à l'afficher ou l'enlever
+                  val maskTap = c.holeTap == 11 || c.holeLong == 11 || c.holeDouble == 11
+                  notch.visibility = if (hidden) View.INVISIBLE else if (!off || maskTap) View.VISIBLE else View.INVISIBLE
                   bar.syncAnim()
                   halo.syncAnim()
                   mask.syncAnim(maskShow)
@@ -6070,11 +6076,19 @@ jobs:
               fun setForeground(pkg: String) {
                   if (pkg == fgPkg) return
                   fgPkg = pkg
+                  manual = -1
                   handler.post { updateVisibility() }
+              }
+
+              /** Appui sur l'encoche : fait apparaître le masque s'il est caché, l'enlève s'il est affiché (jusqu'au prochain changement d'appli) */
+              private fun toggleMask() {
+                  manual = if (lastMaskShow) 0 else 1
+                  updateVisibility()
               }
 
               private fun act(id: Int) {
                   when (id) {
+                      11 -> toggleMask()
                       1 -> svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
                       2 -> svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
                       3 -> {
@@ -6939,6 +6953,7 @@ jobs:
                       b.addView(ui.chips("Appui court", Actions.names, { c.holeTap }, { c.holeTap = it }))
                       b.addView(ui.chips("Appui long", Actions.names, { c.holeLong }, { c.holeLong = it }))
                       b.addView(ui.chips("Double appui", Actions.names, { c.holeDouble }, { c.holeDouble = it }))
+                  b.addView(ui.hint("Pour faire apparaître ou enlever le masque d'un appui sur l'encoche, choisis « Afficher / cacher le masque » pour l'appui court, long ou double. Le choix dure jusqu'au prochain changement d'appli ou au verrouillage."))
 
                       b.addView(ui.section("Halo autour de l'objectif"))
                       b.addView(ui.toggle("Activer le halo", { c.haloOn }, { c.haloOn = it }) { rebuild() })
@@ -7630,8 +7645,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 36
-                  versionName = "3.5.0"
+                  versionCode = 37
+                  versionName = "3.6.0"
               }
 
               compileOptions {
