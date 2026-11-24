@@ -1235,9 +1235,9 @@ jobs:
                   p("mkwh", v)
               }
 
-          /** ---- Tiroir de notification ---- */
+          /** ---- Tiroir de notification (supprimé) ---- */
           var drOn: Boolean
-              get() = gb("drn", true)
+              get() = false
               set(v) {
                   p("drn", v)
               }
