@@ -663,25 +663,6 @@ jobs:
                       p("fill", v)
                   }
 
-              /** Dégradé supprimé */
-              var grad: Boolean
-                  get() = false
-                  set(v) {
-                      p("grad", v)
-                  }
-
-              var fill2: Int
-                  get() = gi("fill2", 0xFF3A0CA3.toInt())
-                  set(v) {
-                      p("fill2", v)
-                  }
-
-              var gradAngle: Int
-                  get() = gi("gang", 0)
-                  set(v) {
-                      p("gang", v)
-                  }
-
               var border: Int
                   get() = gi("bord", 0xFF7C4DFF.toInt())
                   set(v) {
@@ -796,100 +777,6 @@ jobs:
                       p("has", v)
                   }
 
-              var animOn: Boolean
-                  get() = false
-                  set(v) {
-                      p("ao", v)
-                  }
-
-              /** 0 = balayage lumineux, 1 = flash, 2 = les deux */
-              var animStyle: Int
-                  get() = gi("ast", 0)
-                  set(v) {
-                      p("ast", v)
-                  }
-
-              var animDur: Int
-                  get() = gi("adu", 1100)
-                  set(v) {
-                      p("adu", v)
-                  }
-
-              var animPower: Int
-                  get() = gi("apw", 70)
-                  set(v) {
-                      p("apw", v)
-                  }
-
-              /** Largeur du balayage lumineux, en % de la largeur de la barre */
-              var animWidth: Int
-                  get() = gi("agw", 50)
-                  set(v) {
-                      p("agw", v)
-                  }
-
-              /** Nombre de passages du balayage */
-              var animRep: Int
-                  get() = gi("arep", 1)
-                  set(v) {
-                      p("arep", v)
-                  }
-
-              /** 0 = automatique selon l'événement, 1 = toujours de gauche à droite, 2 = toujours de droite à gauche */
-              var animDirMode: Int
-                  get() = gi("adir", 0)
-                  set(v) {
-                      p("adir", v)
-                  }
-
-              /** Couleur de l'animation d'un événement (celle d'origine tant qu'on n'y touche pas) */
-              fun animColor(k: String, def: Int): Int = j.optInt("ac_" + k, def)
-
-              fun setAnimColor(k: String, v: Int) {
-                  p("ac_" + k, v)
-              }
-
-              fun animFlag(k: String): Boolean = j.optBoolean("af_" + k, true)
-
-              fun setAnimFlag(k: String, v: Boolean) {
-                  p("af_" + k, v)
-              }
-
-              /** Réglages des fines barres (i = 1 ou 2) */
-              fun gaugeInt(i: Int, k: String, d: Int): Int = j.optInt("g" + i + k, d)
-
-              fun setGaugeInt(i: Int, k: String, v: Int) {
-                  p("g" + i + k, v)
-              }
-
-              fun gaugeBool(i: Int, k: String, d: Boolean): Boolean = j.optBoolean("g" + i + k, d)
-
-              fun setGaugeBool(i: Int, k: String, v: Boolean) {
-                  p("g" + i + k, v)
-              }
-
-              /** Fondu transparent sur le bas de la barre */
-              /** Fondu du bas supprimé */
-              var fadeOn: Boolean
-                  get() = false
-                  set(v) {
-                      p("fo", v)
-                  }
-
-              /** Hauteur du fondu, en % de la hauteur de la barre */
-              var fadeH: Int
-                  get() = gi("fh", 55)
-                  set(v) {
-                      p("fh", v)
-                  }
-
-              /** Force du fondu : 100 = le bas devient totalement transparent */
-              var fadeAmt: Int
-                  get() = gi("fa", 85)
-                  set(v) {
-                      p("fa", v)
-                  }
-
               var fontScale: Int
                   get() = gi("fsc", 100)
                   set(v) {
@@ -939,13 +826,6 @@ jobs:
                       p("h5h", v)
                   }
 
-              /** Son 5G supprimé */
-              var sound5g: Boolean
-                  get() = false
-                  set(v) {
-                      p("s5g", v)
-                  }
-
               fun haloGradColor(i: Int): Int {
                   val d = intArrayOf(
                       0xFFFF1744.toInt(), 0xFF2979FF.toInt(), 0xFF00E676.toInt(),
@@ -978,38 +858,6 @@ jobs:
                   j.remove("pal")
                   Store.rev++
               }
-
-              /** Masquage de la barre supprimé (AOD, verrouillage, paysage) */
-              var hideAod: Boolean
-                  get() = false
-                  set(v) {
-                      p("haod", v)
-                  }
-
-              var hideLock: Boolean
-                  get() = false
-                  set(v) {
-                      p("hlock", v)
-                  }
-
-              var hideLand: Boolean
-                  get() = false
-                  set(v) {
-                      p("hland", v)
-                  }
-
-              /** Clic sur la barre supprimé */
-              var tapAction: Int
-                  get() = 0
-                  set(v) {
-                      p("tap", v)
-                  }
-
-              var longAction: Int
-                  get() = 0
-                  set(v) {
-                      p("lng", v)
-                  }
 
               var haloOnNotif: Boolean
                   get() = gb("hnot", false)
@@ -1077,91 +925,6 @@ jobs:
                       p("hdbl", v)
                   }
 
-              /** Poignée supprimée */
-              var sideOn: Boolean
-                  get() = false
-                  set(v) {
-                      p("son", v)
-                  }
-
-              var sideRight: Boolean
-                  get() = gb("sri", true)
-                  set(v) {
-                      p("sri", v)
-                  }
-
-              var sideY: Int
-                  get() = gi("sy", 200)
-                  set(v) {
-                      p("sy", v)
-                  }
-
-              var sideLen: Int
-                  get() = gi("sl", 90)
-                  set(v) {
-                      p("sl", v)
-                  }
-
-              var sideThick: Int
-                  get() = gi("st", 6)
-                  set(v) {
-                      p("st", v)
-                  }
-
-              var sideTouchW: Int
-                  get() = gi("stw", 24)
-                  set(v) {
-                      p("stw", v)
-                  }
-
-              var sideColor: Int
-                  get() = gi("scol", 0xAAFFFFFF.toInt())
-                  set(v) {
-                      p("scol", v)
-                  }
-
-              var sideVisible: Boolean
-                  get() = gb("svis", true)
-                  set(v) {
-                      p("svis", v)
-                  }
-
-              var sideOnNotif: Boolean
-                  get() = gb("snot", false)
-                  set(v) {
-                      p("snot", v)
-                  }
-
-              var sideTap: Int
-                  get() = gi("stap", 1)
-                  set(v) {
-                      p("stap", v)
-                  }
-
-              var sideLong: Int
-                  get() = gi("slng", 0)
-                  set(v) {
-                      p("slng", v)
-                  }
-
-              var sideDown: Int
-                  get() = gi("sdwn", 1)
-                  set(v) {
-                      p("sdwn", v)
-                  }
-
-              var sideUp: Int
-                  get() = gi("sup", 0)
-                  set(v) {
-                      p("sup", v)
-                  }
-
-              var sideIn: Int
-                  get() = gi("sin", 0)
-                  set(v) {
-                      p("sin", v)
-                  }
-
 
           /** ---- Barre de masquage (pixels morts) : tout en pixels réels ---- */
           var maskOn: Boolean
@@ -1219,251 +982,6 @@ jobs:
               get() = gb("mksm", false)
               set(v) {
                   p("mksm", v)
-              }
-
-          /** Le masque prend la place de la barre en mode paysage, et la barre revient en portrait */
-          var maskLand: Boolean
-              get() = false
-              set(v) {
-                  p("mkld", v)
-              }
-
-          /** Afficher aussi le masque quand la barre est cachée (verrouillage, AOD, paysage) */
-          var maskWhenHidden: Boolean
-              get() = false
-              set(v) {
-                  p("mkwh", v)
-              }
-
-          /** ---- Tiroir de notification (supprimé) ---- */
-          var drOn: Boolean
-              get() = false
-              set(v) {
-                  p("drn", v)
-              }
-
-          /** Durée d'affichage du tiroir (ms) */
-          var drDur: Int
-              get() = gi("drd", 4000)
-              set(v) {
-                  p("drd", v)
-              }
-
-          /** Prolonger l'affichage le temps de laisser défiler le texte en entier */
-          var drExtend: Boolean
-              get() = gb("dre", true)
-              set(v) {
-                  p("dre", v)
-              }
-
-          /** Durée maximale d'affichage, texte long compris (secondes) */
-          var drMax: Int
-              get() = gi("drx", 20)
-              set(v) {
-                  p("drx", v)
-              }
-
-          /** Durée de l'animation d'ouverture / fermeture (ms) */
-          var drSlideMs: Int
-              get() = gi("drs", 450)
-              set(v) {
-                  p("drs", v)
-              }
-
-          /** Animation : 0 glisse, 1 dépliage, 2 ressort, 3 rebond */
-          var drStyle: Int
-              get() = gi("dry", 2).coerceIn(0, 3)
-              set(v) {
-                  p("dry", v)
-              }
-
-          var drW: Int
-              get() = gi("drw", 320)
-              set(v) {
-                  p("drw", v)
-              }
-
-          var drH: Int
-              get() = gi("drh", 58)
-              set(v) {
-                  p("drh", v)
-              }
-
-          var drRadius: Int
-              get() = gi("drr", 22)
-              set(v) {
-                  p("drr", v)
-              }
-
-          /** Écart entre la barre et le tiroir (dp) ; négatif = le tiroir sort de sous la barre */
-          var drGap: Int
-              get() = gi("drg", -8)
-              set(v) {
-                  p("drg", v)
-              }
-
-          var drOffX: Int
-              get() = gi("dro", 0)
-              set(v) {
-                  p("dro", v)
-              }
-
-          var drFill: Int
-              get() = gi("drf", -16777216)
-              set(v) {
-                  p("drf", v)
-              }
-
-          var drBorder: Boolean
-              get() = gb("drbo", false)
-              set(v) {
-                  p("drbo", v)
-              }
-
-          var drBorderW: Int
-              get() = gi("drbw", 2)
-              set(v) {
-                  p("drbw", v)
-              }
-
-          var drBorderColor: Int
-              get() = gi("drbc", 0x66FFFFFF)
-              set(v) {
-                  p("drbc", v)
-              }
-
-          var drTitleColor: Int
-              get() = gi("drtc", -1)
-              set(v) {
-                  p("drtc", v)
-              }
-
-          var drTextColor: Int
-              get() = gi("drxc", 0xFFC8C8C8.toInt())
-              set(v) {
-                  p("drxc", v)
-              }
-
-          var drTitleSize: Int
-              get() = gi("drts", 14)
-              set(v) {
-                  p("drts", v)
-              }
-
-          var drTextSize: Int
-              get() = gi("drxs", 13)
-              set(v) {
-                  p("drxs", v)
-              }
-
-          /** Disposition : 0 titre puis texte (2 lignes), 1 une seule ligne */
-          var drLayout: Int
-              get() = gi("drl", 0).coerceIn(0, 1)
-              set(v) {
-                  p("drl", v)
-              }
-
-          var drIcon: Boolean
-              get() = gb("dri", true)
-              set(v) {
-                  p("dri", v)
-              }
-
-          var drIconSize: Int
-              get() = gi("dris", 34)
-              set(v) {
-                  p("dris", v)
-              }
-
-          var drIconRound: Boolean
-              get() = gb("drir", true)
-              set(v) {
-                  p("drir", v)
-              }
-
-          /** Faire défiler les textes trop longs */
-          var drScroll: Boolean
-              get() = gb("drsc", true)
-              set(v) {
-                  p("drsc", v)
-              }
-
-          /** Défilement : 0 en boucle, 1 aller-retour, 2 une seule fois */
-          var drMode: Int
-              get() = gi("drsm", 0).coerceIn(0, 2)
-              set(v) {
-                  p("drsm", v)
-              }
-
-          /** Vitesse de défilement (dp par seconde) */
-          var drSpeed: Int
-              get() = gi("drsp", 40)
-              set(v) {
-                  p("drsp", v)
-              }
-
-          /** Pause avant le départ du défilement (et aux extrémités en aller-retour), ms */
-          var drDelay: Int
-              get() = gi("drsd", 900)
-              set(v) {
-                  p("drsd", v)
-              }
-
-          /** Espace entre deux passages du texte en boucle (dp) */
-          var drScrollGap: Int
-              get() = gi("drsg", 48)
-              set(v) {
-                  p("drsg", v)
-              }
-
-          var drFade: Boolean
-              get() = gb("drsf", true)
-              set(v) {
-                  p("drsf", v)
-              }
-
-          var drMusic: Boolean
-              get() = gb("drm", true)
-              set(v) {
-                  p("drm", v)
-              }
-
-          /** Pas de tiroir pour l'appli déjà ouverte */
-          var drSkipFg: Boolean
-              get() = gb("drfg", true)
-              set(v) {
-                  p("drfg", v)
-              }
-
-          var drLock: Boolean
-              get() = gb("drlk", false)
-              set(v) {
-                  p("drlk", v)
-              }
-
-          /** Au toucher : 0 ouvre l'appli, 1 ferme, 2 rien */
-          var drTap: Int
-              get() = gi("drtp", 0).coerceIn(0, 2)
-              set(v) {
-                  p("drtp", v)
-              }
-
-          var drSwipe: Boolean
-              get() = gb("drsw", true)
-              set(v) {
-                  p("drsw", v)
-              }
-
-          /** Applis (noms de paquets) qui n'ouvrent jamais le tiroir */
-          var drBlock: List<String>
-              get() {
-                  val a = j.optJSONArray("drblk") ?: return emptyList()
-                  return List(a.length()) { a.optString(it) }
-              }
-              set(v) {
-                  val a = JSONArray()
-                  for (x in v) a.put(x)
-                  p("drblk", a)
               }
 
 
@@ -1634,7 +1152,7 @@ jobs:
                       p("shfree", v)
                   }
 
-              /** ---- Formes libres à points (barre de statut, pastilles) : réglages rangés sous un préfixe ---- */
+              /** ---- Formes libres à points (barre de statut) : réglages rangés sous un préfixe ---- */
               fun psInt(pre: String, k: String, d: Int): Int = j.optInt(pre + k, d)
 
               fun psSetInt(pre: String, k: String, v: Int) {
@@ -1644,12 +1162,6 @@ jobs:
               fun psBool(pre: String, k: String, d: Boolean): Boolean = j.optBoolean(pre + k, d)
 
               fun psSetBool(pre: String, k: String, v: Boolean) {
-                  p(pre + k, v)
-              }
-
-              fun psStr(pre: String, k: String, d: String): String = j.optString(pre + k, d)
-
-              fun psSetStr(pre: String, k: String, v: String) {
                   p(pre + k, v)
               }
 
@@ -1691,30 +1203,6 @@ jobs:
                   }
               }
 
-              /** Efface tous les réglages d'un préfixe (réinitialise une pastille) */
-              fun psClear(pre: String) {
-                  val ks = ArrayList<String>()
-                  val it = j.keys()
-                  while (it.hasNext()) {
-                      val k = it.next()
-                      if (k.startsWith(pre)) ks.add(k)
-                  }
-                  for (k in ks) j.remove(k)
-                  Store.rev++
-              }
-
-              /** Position par défaut des pastilles : réparties sur deux rangées */
-              fun paX(i: Int): Int = psInt("pa" + i + "_", "x", ((i % 5) - 2) * 130)
-
-              fun paY(i: Int): Int = psInt("pa" + i + "_", "y", 120 + (i / 5) * 100)
-
-              /** Position d'une fine barre : 0 = en bas, 1 = côté gauche (verticale), 2 = côté droit (verticale) */
-              fun gaugePos(i: Int): Int = gaugeInt(i, "pos", when (i) {
-                  1 -> 0
-                  2 -> 1
-                  3 -> 2
-                  else -> 0
-              }).coerceIn(0, 2)
               fun maskBorderColor(i: Int): Int {
                   val defs = intArrayOf(0xFF18FFFF.toInt(), 0xFFFF4081.toInt(), 0xFFE040FB.toInt(), 0xFF00E676.toInt(), 0xFFFFEA00.toInt(), 0xFFFF9100.toInt(), 0xFFFFFFFF.toInt())
                   return gi("mkbc" + i, defs[i.coerceIn(0, 6)])
@@ -1820,10 +1308,6 @@ jobs:
               @Volatile
               var rev = 0
 
-              /** Vrai pendant le réglage de la poignée latérale : on montre sa zone tactile */
-              @Volatile
-              var sideEdit = false
-
               /** Vrai pendant que l'onglet Masque est ouvert : on montre le masque avec son contour */
               @Volatile
               var maskEdit = false
@@ -1835,7 +1319,7 @@ jobs:
               @Volatile
               var maskSelIdx = 0
 
-              /** Préfixe de la forme à points en cours de réglage ("bs_" = barre, "paN_" = pastille), vide sinon */
+              /** Préfixe de la forme à points en cours de réglage ("bs_" = barre), vide sinon */
               @Volatile
               var psEdit = ""
 
@@ -1845,29 +1329,9 @@ jobs:
               @Volatile
               var psSelIdx = 0
 
-              /** Pastille en cours de réglage (0 à 9) */
-              @Volatile
-              var paSel = 0
-
-              /** Déplacement au toucher sur l'écran (session) */
-              @Volatile
-              var touchEdit = false
-
-              /** Ce qu'on peut déplacer au toucher : 0 rien, 1 masque, 2 pastilles, 3 barre de statut */
-              @Volatile
-              var dragGroup = 0
-
               /** Demande à l'écran de réglages de se redessiner après un déplacement au toucher */
               var uiRefresh: (() -> Unit)? = null
 
-              fun dragChanged() {
-                  IslandAccessibilityService.instance?.reload()
-              }
-
-              fun dragDone() {
-                  save()
-                  uiRefresh?.invoke()
-              }
               var cfg: Config = Config(JSONObject())
               private var sp: SharedPreferences? = null
 
@@ -2200,8 +1664,6 @@ jobs:
           import android.hardware.camera2.CameraManager
           import android.location.LocationManager
           import android.media.AudioManager
-          import android.media.Ringtone
-          import android.media.RingtoneManager
           import android.media.MediaMetadata
           import android.media.session.MediaSessionManager
           import android.media.session.PlaybackState
@@ -2237,19 +1699,6 @@ jobs:
               val mv: Int,
               val ma: Float,
               val watts: Float
-          )
-
-          /** Photo de l'état du téléphone, pour repérer ce qui change (branchement, réseau, notifications…) */
-          class EvSnap(
-              val plugged: Boolean,
-              val pct: Int,
-              val full: Boolean,
-              val gen: String,
-              val wifi: Boolean,
-              val airplane: Boolean,
-              val dnd: Boolean,
-              val ringer: Int,
-              val notif: Int
           )
 
           /** Lit en direct toutes les infos du téléphone et les transforme en ModuleValue */
@@ -2367,10 +1816,8 @@ jobs:
               }
 
               private var last5g: Boolean? = null
-              private var lastSoundAt = 0L
-              private var ringRef: Ringtone? = null
 
-              /** Joue un son quand le téléphone passe de la 4G à la vraie 5G (connectée) */
+              /** Note dans l'historique chaque connexion et chaque perte de la vraie 5G */
               private fun watch5g() {
                   val gen = cellGen()
                   val now = gen.startsWith("5G")
@@ -2381,20 +1828,6 @@ jobs:
                           Hist5g.add(app, true, "déjà active au démarrage")
                       } else if (prev != null && prev != now) {
                           Hist5g.add(app, now, if (now) "" else gen)
-                      }
-                  }
-                  if (!Store.cfg.sound5g) return
-                  if (prev == false && now) {
-                      val t = System.currentTimeMillis()
-                      if (t - lastSoundAt > 20000L) {
-                          lastSoundAt = t
-                          try {
-                              val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                              val r = RingtoneManager.getRingtone(app, uri)
-                              ringRef = r
-                              r.play()
-                          } catch (e: Exception) {
-                          }
                       }
                   }
               }
@@ -2585,21 +2018,6 @@ jobs:
                   } catch (e: Exception) {
                       false
                   }
-              }
-
-              /** État actuel utilisé pour déclencher les animations */
-              fun evSnap(): EvSnap {
-                  val b = batt()
-                  val am = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                  val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                  val f = nm.currentInterruptionFilter
-                  return EvSnap(
-                      b.plugged, b.pct, b.full, cellGen(), wifiConnectedNow(),
-                      Settings.Global.getInt(app.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0,
-                      f != NotificationManager.INTERRUPTION_FILTER_ALL && f != NotificationManager.INTERRUPTION_FILTER_UNKNOWN,
-                      am.ringerMode,
-                      NotifState.items.sumOf { it.count }
-                  )
               }
 
               private fun fmt(p: String): String {
@@ -2918,26 +2336,6 @@ jobs:
                   return 4
               }
 
-              @Suppress("DEPRECATION")
-              private fun wifiValue(): ModuleValue {
-                  var lvl = 4
-                  try {
-                      val wm = app.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-                      val rssi = wm.connectionInfo.rssi
-                      if (rssi > -127) {
-                          lvl = when {
-                              rssi >= -55 -> 4
-                              rssi >= -67 -> 3
-                              rssi >= -78 -> 2
-                              rssi >= -88 -> 1
-                              else -> 0
-                          }
-                      }
-                  } catch (e: Exception) {
-                  }
-                  return ModuleValue("Wi‑Fi", true, levelColor(lvl, "wifi"), "📶", lvl == 0)
-              }
-
               private val nrRe = Regex("nrState\\s*=\\s*([A-Za-z_]+)", RegexOption.IGNORE_CASE)
               private var genCache = ""
               private var genAt = 0L
@@ -3084,43 +2482,12 @@ jobs:
                   }
               }
 
-              /** Dernier contenu vu pour chaque notification : seul un vrai changement ouvre le tiroir */
-              private val seen = HashMap<String, String>()
-
               override fun onNotificationPosted(sbn: StatusBarNotification?) {
                   recompute()
-                  handle(sbn)
               }
 
               override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-                  if (sbn != null) seen.remove(sbn.key)
                   recompute()
-              }
-
-              /** Lit le titre et le texte d'une notification et prévient le tiroir */
-              private fun handle(sbn: StatusBarNotification?) {
-                  if (sbn == null || sbn.packageName == packageName) return
-                  try {
-                      val n = sbn.notification ?: return
-                      if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
-                      val ex = n.extras ?: return
-                      val tpl = ex.getString(Notification.EXTRA_TEMPLATE) ?: ""
-                      val music = n.category == Notification.CATEGORY_TRANSPORT || tpl.contains("MediaStyle")
-                      if (sbn.isOngoing && !music) return
-                      val title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
-                      val big = ex.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim() ?: ""
-                      val small = ex.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
-                      val text = if (big.isNotEmpty() && !music) big else small
-                      if (title.isEmpty() && text.isEmpty()) return
-                      val sig = title + "\u0001" + text
-                      if (seen[sbn.key] == sig) return
-                      if (seen.size > 300) seen.clear()
-                      seen[sbn.key] = sig
-                      // les notifications republiées au rebranchement de l'écoute ne sont pas des nouveautés
-                      if (System.currentTimeMillis() - sbn.postTime > 20000L) return
-                      NotifState.posted(NotifEvent(sbn.packageName, title, text, music))
-                  } catch (_: Exception) {
-                  }
               }
 
               /** Regroupe les notifications en cours par appli */
@@ -3162,25 +2529,13 @@ jobs:
               val time: Long
           )
 
-          /** Une notification qui vient d'arriver (ou de changer) */
-          data class NotifEvent(
-              val pkg: String,
-              val title: String,
-              val text: String,
-              val music: Boolean
-          )
-
           /** Pont entre l'écoute des notifications et la barre */
           object NotifState {
               @Volatile
               var items: List<NotifItem> = emptyList()
 
               var onChange: (() -> Unit)? = null
-              var onPosted: ((NotifEvent) -> Unit)? = null
 
-              fun posted(e: NotifEvent) {
-                  main.post { onPosted?.invoke(e) }
-              }
               private val main = Handler(Looper.getMainLooper())
 
               fun update(list: List<NotifItem>) {
@@ -3197,19 +2552,14 @@ jobs:
           import android.content.Context
           import android.graphics.BlurMaskFilter
           import android.graphics.Canvas
-          import android.graphics.Color
-          import android.graphics.LinearGradient
           import android.graphics.Paint
           import android.graphics.Path
           import android.graphics.PorterDuff
           import android.graphics.PorterDuffXfermode
           import android.graphics.RectF
-          import android.graphics.Shader
           import android.graphics.Typeface
           import android.view.View
           import android.view.animation.LinearInterpolator
-          import kotlin.math.cos
-          import kotlin.math.sin
 
           /** La barre : forme + infos + trou découpé pour l'appareil photo */
           class BarView(ctx: Context, private val engine: StatusEngine) : View(ctx) {
@@ -3221,25 +2571,12 @@ jobs:
               private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                   xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
               }
-              private val fadePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                  xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
-              }
               private val tp = Paint(Paint.ANTI_ALIAS_FLAG)
               private val lp = Paint(Paint.ANTI_ALIAS_FLAG)
               private val rect = RectF()
               private val ledPath = Path()
 
-              private class Anim(val t0: Long, val color: Int, val kind: Int, val dir: Int, val dur: Long)
-
-              private val anims = ArrayList<Anim>()
-              private val animPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-              private val gaugePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-              private var prevSnap: EvSnap? = null
-              /** Les fines barres de progression sont retirées de l'appli */
-              private val gaugesOn = false
-              private val gFrac = floatArrayOf(0f, 0f, 0f, 0f)
-              private val gCol = intArrayOf(Pal.GREEN, Pal.GREEN, Pal.GREEN, Pal.GREEN)
-              private val gMods = HashMap<Int, Mod>()
+              private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
               private var path = Path()
               private var pathKey = ""
@@ -3263,216 +2600,9 @@ jobs:
                       if (mod.showLed && (mod.ledBlink || v.blink || mod.ledStyle == 12)) needFast = true
                   }
                   vals = m
-                  for (gi in 1..4) {
-                      if (gaugesOn && c.gaugeBool(gi, "on", gi == 1)) {
-                          computeGauge(gi)
-                          if (c.gaugeInt(gi, "src", if (gi == 1) 0 else 1) == 9) needFast = true
-                      }
-                  }
-                  detectEvents()
                   engine.fast = needFast
                   syncAnim()
                   invalidate()
-              }
-
-              // ---------- fines barres ----------
-
-              private fun computeGauge(i: Int) {
-                  val c = Store.cfg
-                  val src = c.gaugeInt(i, "src", if (i == 1) 0 else 1)
-                  var f = 0f
-                  var col = Pal.CYAN
-                  if (src == 8) {
-                      val cal = java.util.Calendar.getInstance()
-                      f = (cal.get(java.util.Calendar.HOUR_OF_DAY) * 3600 + cal.get(java.util.Calendar.MINUTE) * 60 + cal.get(java.util.Calendar.SECOND)) / 86400f
-                      col = tc("time", Pal.CYAN)
-                  } else if (src == 9) {
-                      f = (System.currentTimeMillis() % 60000L) / 60000f
-                      col = tc("time", Pal.CYAN)
-                  } else {
-                      val kinds = arrayOf(Kind.BATTERY, Kind.SIGNAL, Kind.WIFI_STATE, Kind.RAM, Kind.STORAGE, Kind.VOLUME, Kind.BRIGHTNESS, Kind.CHARGE_WATTS)
-                      val k = kinds[src.coerceIn(0, 7)]
-                      val mod = gMods.getOrPut(src) { Mod.create(k, false) }
-                      val v = engine.compute(mod)
-                      f = if (v.frac < 0f) 0f else v.frac
-                      col = v.led
-                  }
-                  gFrac[i - 1] = f.coerceIn(0f, 1f)
-                  gCol[i - 1] = col
-              }
-
-              private fun drawGauge(canvas: Canvas, c: Config, i: Int, w: Float, h: Float) {
-                  if (!gaugesOn || !c.gaugeBool(i, "on", i == 1)) return
-                  val th = c.gaugeInt(i, "th", 2) * d
-                  val pos = c.gaugePos(i)
-                  val col = if (c.gaugeBool(i, "auto", true)) gCol[i - 1] else c.gaugeInt(i, "col", Pal.CYAN)
-                  val inset = c.gaugeInt(i, "inset", 0) * d
-                  val from = c.gaugeInt(i, "from", 0)
-                  val track = c.gaugeBool(i, "trk", true)
-                  gaugePaint.shader = null
-                  if (pos == 0) {
-                      // horizontale, collée au bas de la barre
-                      val y0 = h - th
-                      val x0 = inset
-                      val x1 = w - inset
-                      val len = x1 - x0
-                      if (len <= 1f) return
-                      if (track) {
-                          gaugePaint.color = (col and 0x00FFFFFF) or (0x33 shl 24)
-                          rect.set(x0, y0, x1, y0 + th)
-                          canvas.drawRoundRect(rect, th / 2f, th / 2f, gaugePaint)
-                      }
-                      val fl = len * gFrac[i - 1]
-                      if (fl < 0.5f) return
-                      val a: Float
-                      val b: Float
-                      if (from == 1) {
-                          a = x0 + (len - fl) / 2f
-                          b = x0 + (len + fl) / 2f
-                      } else if (from == 2) {
-                          a = x1 - fl
-                          b = x1
-                      } else {
-                          a = x0
-                          b = x0 + fl
-                      }
-                      gaugePaint.color = col
-                      rect.set(a, y0, b, y0 + th)
-                      canvas.drawRoundRect(rect, th / 2f, th / 2f, gaugePaint)
-                  } else {
-                      // verticale, collée au côté gauche (1) ou droit (2) de la barre
-                      val x0 = if (pos == 1) 0f else w - th
-                      val y0 = inset
-                      val y1 = h - inset
-                      val len = y1 - y0
-                      if (len <= 1f) return
-                      if (track) {
-                          gaugePaint.color = (col and 0x00FFFFFF) or (0x33 shl 24)
-                          rect.set(x0, y0, x0 + th, y1)
-                          canvas.drawRoundRect(rect, th / 2f, th / 2f, gaugePaint)
-                      }
-                      val fl = len * gFrac[i - 1]
-                      if (fl < 0.5f) return
-                      val a: Float
-                      val b: Float
-                      if (from == 1) {
-                          a = y0 + (len - fl) / 2f
-                          b = y0 + (len + fl) / 2f
-                      } else if (from == 2) {
-                          a = y0
-                          b = y0 + fl
-                      } else {
-                          a = y1 - fl
-                          b = y1
-                      }
-                      gaugePaint.color = col
-                      rect.set(x0, a, x0 + th, b)
-                      canvas.drawRoundRect(rect, th / 2f, th / 2f, gaugePaint)
-                  }
-              }
-              // ---------- animations ----------
-
-              private fun addAnim(key: String, color: Int, kind: Int, dir: Int) {
-                  val c = Store.cfg
-                  if (!c.animOn || !c.animFlag(key)) return
-                  anims.add(makeAnim(c, key, color, kind, dir, System.currentTimeMillis()))
-                  while (anims.size > 6) anims.removeAt(0)
-              }
-
-              private fun makeAnim(c: Config, key: String, color: Int, kind: Int, dir: Int, t0: Long): Anim {
-                  val k = if (kind == 0) c.animStyle else kind
-                  val dd = when (c.animDirMode) {
-                      1 -> 1
-                      2 -> -1
-                      else -> dir
-                  }
-                  return Anim(t0, c.animColor(key, color), k, dd, c.animDur.toLong())
-              }
-
-              /** Compare l'état du téléphone à celui d'avant et lance l'animation qui correspond */
-              private fun detectEvents() {
-                  val now = try {
-                      engine.evSnap()
-                  } catch (e: Exception) {
-                      return
-                  }
-                  val p = prevSnap
-                  prevSnap = now
-                  if (p == null) return
-                  if (!p.plugged && now.plugged) addAnim("plug", tc("batt_plug", Pal.GREEN), 0, 1)
-                  if (p.plugged && !now.plugged) addAnim("unplug", Pal.ORANGE, 0, -1)
-                  if (now.plugged && ((!p.full && now.full) || (p.pct < 100 && now.pct >= 100))) addAnim("full", tc("cs_full", Pal.CYAN), 3, 1)
-                  if (!now.plugged && p.pct > 15 && now.pct <= 15) addAnim("low", Pal.RED, 3, 1)
-                  if (p.gen != now.gen && p.gen.take(2) != now.gen.take(2) && p.gen != "Mobile" && now.gen != "Mobile") {
-                      addAnim("net", if (now.gen.startsWith("5G")) Pal.PURPLE else Pal.BLUE, 0, 1)
-                  }
-                  if (p.wifi != now.wifi) addAnim("wifi", if (now.wifi) Pal.GREEN else Pal.ORANGE, 0, if (now.wifi) 1 else -1)
-                  if (now.notif > p.notif) addAnim("notif", tc("notif", Pal.PINK), 0, 1)
-                  if (p.airplane != now.airplane) addAnim("mode", Pal.ORANGE, 0, 1)
-                  if (p.dnd != now.dnd) addAnim("mode", Pal.PURPLE, 0, 1)
-                  if (p.ringer != now.ringer) addAnim("mode", Pal.YELLOW, 0, 1)
-              }
-
-              /** Joue une animation d'exemple (bouton « Tester ») : celle d'un événement, ou toutes à la suite si key est vide */
-              fun playTest(key: String?) {
-                  val c = Store.cfg
-                  val t = System.currentTimeMillis()
-                  val dur = c.animDur.toLong() * maxOf(1, c.animRep)
-                  anims.clear()
-                  val all = listOf(
-                      Triple("plug", tc("batt_plug", Pal.GREEN), 1), Triple("unplug", Pal.ORANGE, -1),
-                      Triple("full", tc("cs_full", Pal.CYAN), 1), Triple("low", Pal.RED, 1),
-                      Triple("net", Pal.PURPLE, 1), Triple("wifi", Pal.GREEN, 1),
-                      Triple("notif", tc("notif", Pal.PINK), 1), Triple("mode", Pal.ORANGE, 1)
-                  )
-                  var n = 0L
-                  for (e in all) {
-                      if (key != null && key != e.first) continue
-                      val kind = if (e.first == "full" || e.first == "low") 3 else 0
-                      anims.add(makeAnim(c, e.first, e.second, kind, e.third, t + n * dur))
-                      n++
-                      if (key == null && n >= 4) break
-                  }
-                  invalidate()
-              }
-
-              private fun drawAnims(canvas: Canvas, c: Config, w: Float, h: Float) {
-                  val now = System.currentTimeMillis()
-                  var k = 0
-                  while (k < anims.size) {
-                      if (now - anims[k].t0 > anims[k].dur * maxOf(1, c.animRep)) anims.removeAt(k) else k++
-                  }
-                  val pw = c.animPower / 100f
-                  val rep = maxOf(1, c.animRep)
-                  for (a in anims) {
-                      val p0 = ((now - a.t0).toFloat() / (a.dur * rep)).coerceIn(0f, 1f)
-                      val q = p0 * rep
-                      val p = if (p0 >= 1f) 1f else q - Math.floor(q.toDouble()).toFloat()
-                      val env = Math.sin(Math.PI * p).toFloat()
-                      val rgb = a.color and 0x00FFFFFF
-                      if (a.kind == 0 || a.kind == 2) {
-                          val e = p * p * (3f - 2f * p)
-                          val bw = w * c.animWidth / 100f
-                          val cx = if (a.dir >= 0) -bw / 2f + (w + bw) * e else w + bw / 2f - (w + bw) * e
-                          val al = (255 * pw * 0.9f * env).toInt().coerceIn(0, 255)
-                          animPaint.shader = LinearGradient(cx - bw / 2f, 0f, cx + bw / 2f, 0f, intArrayOf(rgb, rgb or (al shl 24), rgb), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
-                          canvas.drawRect(0f, 0f, w, h, animPaint)
-                      }
-                      if (a.kind == 1 || a.kind == 2) {
-                          val al = (255 * pw * 0.4f * env).toInt().coerceIn(0, 255)
-                          animPaint.shader = null
-                          animPaint.color = rgb or (al shl 24)
-                          canvas.drawRect(0f, 0f, w, h, animPaint)
-                      }
-                      if (a.kind == 3) {
-                          val e = Math.abs(Math.sin(2.0 * Math.PI * p)).toFloat()
-                          val al = (255 * pw * 0.6f * e * (1f - p0 * 0.5f)).toInt().coerceIn(0, 255)
-                          animPaint.shader = null
-                          animPaint.color = rgb or (al shl 24)
-                          canvas.drawRect(0f, 0f, w, h, animPaint)
-                      }
-                  }
-                  animPaint.shader = null
               }
 
               fun syncAnim() {
@@ -4145,28 +3275,13 @@ jobs:
 
                   // fond
                   fillPaint.style = Paint.Style.FILL
-                  if (c.grad) {
-                      val rad = Math.toRadians(c.gradAngle.toDouble())
-                      val dx = (cos(rad) * w / 2f).toFloat()
-                      val dy = (sin(rad) * h / 2f).toFloat()
-                      fillPaint.shader = LinearGradient(w / 2f - dx, h / 2f - dy, w / 2f + dx, h / 2f + dy, c.fill, c.fill2, Shader.TileMode.CLAMP)
-                  } else {
-                      fillPaint.shader = null
-                      fillPaint.color = c.fill
-                  }
+                  fillPaint.shader = null
+                  fillPaint.color = c.fill
                   canvas.drawPath(path, fillPaint)
                   if (c.borderW > 0) {
                       strokePaint.color = c.border
                       strokePaint.strokeWidth = c.borderW * d
                       canvas.drawPath(path, strokePaint)
-                  }
-
-                  // fondu (fade) transparent sur le bas de la barre : il n'efface que le fond, pas les infos
-                  if (c.fadeOn && c.fadeH > 0 && c.fadeAmt > 0) {
-                      val fh = (h * c.fadeH / 100f).coerceIn(1f, h)
-                      val a = (255 * c.fadeAmt / 100f).toInt().coerceIn(0, 255)
-                      fadePaint.shader = LinearGradient(0f, h - fh, 0f, h, 0x00000000, Color.argb(a, 0, 0, 0), Shader.TileMode.CLAMP)
-                      canvas.drawRect(0f, h - fh, w, h, fadePaint)
                   }
 
                   // infos
@@ -4178,13 +3293,6 @@ jobs:
                   val hp = if (inside) c.holePad * d else gap / 2f
                   drawRegion(canvas, visibleMods(c, 0), visibleMods(c, 1), edge, hx - hr - hp, cy, gap)
                   drawRegion(canvas, visibleMods(c, 2), visibleMods(c, 3), hx + hr + hp, w - edge, cy, gap)
-
-                  // fines barres de progression, puis animations
-                  drawGauge(canvas, c, 1, w, h)
-                  drawGauge(canvas, c, 2, w, h)
-                  drawGauge(canvas, c, 3, w, h)
-                  drawGauge(canvas, c, 4, w, h)
-                  if (anims.isNotEmpty()) drawAnims(canvas, c, w, h)
 
                   // trou de l'appareil photo : rien derrière
                   if (c.holeOn && c.cut) {
@@ -4198,11 +3306,9 @@ jobs:
                       PointShape.pts(c, "bs_", 0f, 0f, w, h, pxs, pys)
                       val pi = Store.psSelIdx.coerceIn(0, pn - 1)
                       val pq = if (Store.psSelTop) pi else pn * 2 - 1 - pi
-                      gaugePaint.shader = null
-                      gaugePaint.color = 0xFFFF1744.toInt()
-                      canvas.drawCircle(pxs[pq], pys[pq], 7f, gaugePaint)
+                      dotPaint.color = 0xFFFF1744.toInt()
+                      canvas.drawCircle(pxs[pq], pys[pq], 7f, dotPaint)
                   }
-                  if (anims.isNotEmpty()) postInvalidateOnAnimation()
               }
           }
           KOTLIN_EOF
@@ -4399,126 +3505,6 @@ jobs:
           }
           KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
-          cat > app/src/main/java/com/example/island/SideView.kt <<'KOTLIN_EOF'
-          package com.example.island
-
-          import android.content.Context
-          import android.graphics.Canvas
-          import android.graphics.Color
-          import android.graphics.DashPathEffect
-          import android.graphics.Paint
-          import android.graphics.RectF
-          import android.os.Handler
-          import android.os.Looper
-          import android.view.MotionEvent
-          import android.view.View
-          import android.view.ViewConfiguration
-          import kotlin.math.abs
-          import kotlin.math.min
-
-          /** Poignée sur le côté de l'écran : appui, appui long ou glissement = action au choix */
-          class SideView(ctx: Context, private val doAction: (Int) -> Unit) : View(ctx) {
-              private val d = ctx.resources.displayMetrics.density
-              private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-              private val tp = Paint(Paint.ANTI_ALIAS_FLAG)
-              private val rect = RectF()
-              private val slop = ViewConfiguration.get(ctx).scaledTouchSlop * 2
-              private val handler = Handler(Looper.getMainLooper())
-              private var downX = 0f
-              private var downY = 0f
-              private var longFired = false
-
-              private val longRun = Runnable {
-                  longFired = true
-                  doAction(Store.cfg.sideLong)
-              }
-
-              fun refresh() {
-                  invalidate()
-              }
-
-              override fun onTouchEvent(e: MotionEvent): Boolean {
-                  val c = Store.cfg
-                  when (e.actionMasked) {
-                      MotionEvent.ACTION_DOWN -> {
-                          downX = e.rawX
-                          downY = e.rawY
-                          longFired = false
-                          if (c.sideLong != 0) {
-                              handler.postDelayed(longRun, ViewConfiguration.getLongPressTimeout().toLong())
-                          }
-                      }
-                      MotionEvent.ACTION_MOVE -> {
-                          if (!longFired && (abs(e.rawX - downX) > slop || abs(e.rawY - downY) > slop)) {
-                              handler.removeCallbacks(longRun)
-                          }
-                      }
-                      MotionEvent.ACTION_UP -> {
-                          handler.removeCallbacks(longRun)
-                          if (!longFired) {
-                              val dx = e.rawX - downX
-                              val dy = e.rawY - downY
-                              val th = 24f * d
-                              if (abs(dy) > th && abs(dy) > abs(dx)) {
-                                  doAction(if (dy > 0f) c.sideDown else c.sideUp)
-                              } else if (abs(dx) > th && abs(dx) > abs(dy)) {
-                                  val inward = if (c.sideRight) dx < 0f else dx > 0f
-                                  if (inward) doAction(c.sideIn)
-                              } else if (abs(dx) <= slop && abs(dy) <= slop) {
-                                  doAction(c.sideTap)
-                              }
-                          }
-                      }
-                      MotionEvent.ACTION_CANCEL -> handler.removeCallbacks(longRun)
-                  }
-                  return true
-              }
-
-              override fun onDraw(canvas: Canvas) {
-                  val c = Store.cfg
-                  if (!c.sideOn) return
-                  val edit = Store.sideEdit
-                  if (!edit) {
-                      if (!c.sideVisible) return
-                      if (c.sideOnNotif && NotifState.items.isEmpty()) return
-                  }
-                  val th = c.sideThick * d
-                  val len = min(height.toFloat(), c.sideLen * d)
-                  val top = (height - len) / 2f
-                  val left = if (c.sideRight) width - th else 0f
-
-                  if (edit) {
-                      // pendant le réglage : on montre la zone qui réagit au toucher
-                      val w = width.toFloat()
-                      val h = height.toFloat()
-                      rect.set(0f, 0f, w, h)
-                      p.style = Paint.Style.FILL
-                      p.pathEffect = null
-                      p.color = 0x447C4DFF
-                      canvas.drawRoundRect(rect, 8f * d, 8f * d, p)
-                      p.style = Paint.Style.STROKE
-                      p.strokeWidth = 2f * d
-                      p.color = 0xFFB388FF.toInt()
-                      p.pathEffect = DashPathEffect(floatArrayOf(8f * d, 6f * d), 0f)
-                      rect.set(d, d, w - d, h - d)
-                      canvas.drawRoundRect(rect, 8f * d, 8f * d, p)
-                      p.pathEffect = null
-                      tp.color = Color.WHITE
-                      tp.textSize = min(11f * d, w * 0.5f)
-                      tp.textAlign = Paint.Align.CENTER
-                      canvas.save()
-                      canvas.rotate(-90f, w / 2f, h / 2f)
-                      canvas.drawText("ZONE TACTILE", w / 2f, h / 2f - (tp.ascent() + tp.descent()) / 2f, tp)
-                      canvas.restore()
-                  }
-
-                  rect.set(left, top, left + th, top + len)
-                  p.style = Paint.Style.FILL
-                  p.color = c.sideColor
-                  canvas.drawRoundRect(rect, th / 2f, th / 2f, p)
-              }
-          }
-          KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
           cat > app/src/main/java/com/example/island/MaskView.kt <<'KOTLIN_EOF'
           package com.example.island
@@ -4535,7 +3521,6 @@ jobs:
           import android.graphics.Path
           import android.graphics.PathMeasure
           import android.graphics.Shader
-          import android.view.MotionEvent
           import android.view.View
           import android.view.animation.AccelerateDecelerateInterpolator
           import android.view.animation.BounceInterpolator
@@ -4694,13 +3679,6 @@ jobs:
               private var morphT = 1f
               private var morphAnim: ValueAnimator? = null
 
-              private var dragMode = 0
-              private var dragTop = true
-              private var dragIdx = 0
-              private var lastX = 0f
-              private var lastY = 0f
-              private var accX = 0f
-              private var accY = 0f
 
               init {
                   setLayerType(LAYER_TYPE_SOFTWARE, null)
@@ -4967,61 +3945,6 @@ jobs:
                   }
               }
 
-              /** Pendant le réglage : glisser déplace tout le masque, toucher un point déplace ce point */
-              override fun onTouchEvent(e: MotionEvent): Boolean {
-                  if (!Store.touchEdit || Store.dragGroup != 1 || !Store.maskEdit) return false
-                  val c = Store.cfg
-                  when (e.actionMasked) {
-                      MotionEvent.ACTION_DOWN -> {
-                          lastX = e.rawX
-                          lastY = e.rawY
-                          accX = 0f
-                          accY = 0f
-                          val n = c.maskN
-                          val xs = FloatArray(n * 2)
-                          val ys = FloatArray(n * 2)
-                          points(c, screenW, xs, ys)
-                          val k = Drag.nearest(xs, ys, e.x + winX, e.y + winY, 60f)
-                          if (k >= 0) {
-                              dragMode = 2
-                              dragTop = k < n
-                              dragIdx = if (k < n) k else n * 2 - 1 - k
-                              Store.maskSelTop = dragTop
-                              Store.maskSelIdx = dragIdx
-                              invalidate()
-                          } else {
-                              dragMode = 1
-                          }
-                          return true
-                      }
-                      MotionEvent.ACTION_MOVE -> {
-                          accX += e.rawX - lastX
-                          accY += e.rawY - lastY
-                          lastX = e.rawX
-                          lastY = e.rawY
-                          val ix = accX.toInt()
-                          val iy = accY.toInt()
-                          if (ix == 0 && iy == 0) return true
-                          accX -= ix
-                          accY -= iy
-                          if (dragMode == 1) {
-                              c.maskX = c.maskX + ix
-                              c.maskY = (c.maskY + iy).coerceAtLeast(0)
-                          } else if (dragMode == 2) {
-                              val q = c.maskPt(dragTop, dragIdx)
-                              c.setMaskPt(dragTop, dragIdx, q[0] + ix, q[1] + iy)
-                          }
-                          Store.dragChanged()
-                          return true
-                      }
-                      MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                          dragMode = 0
-                          Store.dragDone()
-                          return true
-                      }
-                  }
-                  return true
-              }
           }
           KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
@@ -5084,202 +4007,9 @@ jobs:
                   return p
               }
           }
-          /** Aide au déplacement tactile des points */
-          object Drag {
-              /** Numéro du point le plus proche de (x, y), à moins de maxD pixels ; -1 s'il n'y en a pas */
-              fun nearest(xs: FloatArray, ys: FloatArray, x: Float, y: Float, maxD: Float): Int {
-                  var best = -1
-                  var bd = maxD * maxD
-                  for (i in xs.indices) {
-                      val dx = xs[i] - x
-                      val dy = ys[i] - y
-                      val dd = dx * dx + dy * dy
-                      if (dd <= bd) {
-                          bd = dd
-                          best = i
-                      }
-                  }
-                  return best
-              }
-          }
+
           KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
-          cat > app/src/main/java/com/example/island/PastilleView.kt <<'KOTLIN_EOF'
-          package com.example.island
-
-          import android.content.Context
-          import android.graphics.Canvas
-          import android.graphics.Paint
-          import android.graphics.Path
-          import android.graphics.RectF
-          import android.os.BatteryManager
-          import android.view.MotionEvent
-          import android.view.View
-          import java.text.SimpleDateFormat
-          import java.util.Date
-          import java.util.Locale
-
-          /** Pastille indépendante : une petite forme (ovale, arrondie ou libre à points) avec un contenu, placée où on veut */
-          class PastilleView(ctx: Context, private val idx: Int) : View(ctx) {
-              private val pre = "pa" + idx + "_"
-
-              /** Coin haut-gauche de la forme dans la fenêtre */
-              var ox = 0f
-              var oy = 0f
-
-              private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-              private val stroke = Paint(Paint.ANTI_ALIAS_FLAG)
-              private val txt = Paint(Paint.ANTI_ALIAS_FLAG)
-              private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
-              private val d = ctx.resources.displayMetrics.density
-              private val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
-              private val tick = Runnable { invalidate() }
-              private var dragMode = 0
-              private var lastX = 0f
-              private var lastY = 0f
-              private var accX = 0f
-              private var accY = 0f
-              private var dragTop = true
-              private var dragIdx = 0
-
-              init {
-                  fill.style = Paint.Style.FILL
-                  stroke.style = Paint.Style.STROKE
-                  txt.textAlign = Paint.Align.CENTER
-                  txt.isFakeBoldText = true
-                  dot.style = Paint.Style.FILL
-                  dot.color = 0xFFFF1744.toInt()
-              }
-
-              private fun content(c: Config): String {
-                  return when (c.psInt(pre, "ct", 0)) {
-                      1 -> fmt.format(Date())
-                      2 -> try {
-                          val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-                          bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).toString() + "%"
-                      } catch (e: Exception) {
-                          ""
-                      }
-                      3 -> c.psStr(pre, "tx", "")
-                      else -> ""
-                  }
-              }
-
-              override fun onDraw(canvas: Canvas) {
-                  val c = Store.cfg
-                  val w = c.psInt(pre, "w", 120).toFloat()
-                  val h = c.psInt(pre, "h", 60).toFloat()
-                  val kind = c.psInt(pre, "shape", 1)
-                  val box = RectF(ox, oy, ox + w, oy + h)
-                  val path = Path()
-                  if (kind == 0) {
-                      path.addOval(box, Path.Direction.CW)
-                  } else if (kind == 1) {
-                      val r = c.psInt(pre, "rad", 100).coerceIn(0, 100) / 100f * minOf(w, h) / 2f
-                      path.addRoundRect(box, r, r, Path.Direction.CW)
-                  } else {
-                      path.set(PointShape.path(c, pre, ox, oy, w, h))
-                  }
-                  fill.color = c.psInt(pre, "fill", 0xFF1C1C1E.toInt())
-                  canvas.drawPath(path, fill)
-                  val bw = c.psInt(pre, "bw", 0)
-                  if (bw > 0) {
-                      stroke.color = c.psInt(pre, "bc", 0xFFFFFFFF.toInt())
-                      stroke.strokeWidth = bw.toFloat()
-                      canvas.drawPath(path, stroke)
-                  }
-
-                  val t = content(c)
-                  if (t.isNotEmpty()) {
-                      txt.color = c.psInt(pre, "tc", 0xFFFFFFFF.toInt())
-                      txt.textSize = c.psInt(pre, "ts", 16) * d
-                      val tw = txt.measureText(t)
-                      if (tw > w * 0.9f && tw > 0f) txt.textSize = txt.textSize * w * 0.9f / tw
-                      canvas.drawText(t, ox + w / 2f, oy + h / 2f - (txt.ascent() + txt.descent()) / 2f, txt)
-                  }
-
-                  if (Store.psEdit == pre && kind == 2) {
-                      val n = c.psN(pre)
-                      val xs = FloatArray(n * 2)
-                      val ys = FloatArray(n * 2)
-                      PointShape.pts(c, pre, ox, oy, w, h, xs, ys)
-                      val i = Store.psSelIdx.coerceIn(0, n - 1)
-                      val q = if (Store.psSelTop) i else n * 2 - 1 - i
-                      canvas.drawCircle(xs[q], ys[q], 7f, dot)
-                  }
-
-                  // l'heure et la batterie se rafraîchissent toutes les secondes tant que la pastille est visible
-                  removeCallbacks(tick)
-                  val ct = c.psInt(pre, "ct", 0)
-                  if (ct == 1 || ct == 2) postDelayed(tick, 1000)
-              }
-
-              /** Pendant le réglage : glisser déplace la pastille, toucher un point (forme libre) déplace ce point */
-              override fun onTouchEvent(e: MotionEvent): Boolean {
-                  if (!Store.touchEdit || Store.dragGroup != 2) return false
-                  val c = Store.cfg
-                  when (e.actionMasked) {
-                      MotionEvent.ACTION_DOWN -> {
-                          lastX = e.rawX
-                          lastY = e.rawY
-                          accX = 0f
-                          accY = 0f
-                          dragMode = 1
-                          if (Store.paSel != idx) {
-                              Store.paSel = idx
-                              Store.psEdit = pre
-                          }
-                          if (c.psInt(pre, "shape", 1) == 2) {
-                              val n = c.psN(pre)
-                              val xs = FloatArray(n * 2)
-                              val ys = FloatArray(n * 2)
-                              PointShape.pts(c, pre, ox, oy, c.psInt(pre, "w", 120).toFloat(), c.psInt(pre, "h", 60).toFloat(), xs, ys)
-                              val k = Drag.nearest(xs, ys, e.x, e.y, 50f)
-                              if (k >= 0) {
-                                  dragMode = 2
-                                  dragTop = k < n
-                                  dragIdx = if (k < n) k else n * 2 - 1 - k
-                                  Store.psSelTop = dragTop
-                                  Store.psSelIdx = dragIdx
-                              }
-                          }
-                          Store.dragChanged()
-                          return true
-                      }
-                      MotionEvent.ACTION_MOVE -> {
-                          accX += e.rawX - lastX
-                          accY += e.rawY - lastY
-                          lastX = e.rawX
-                          lastY = e.rawY
-                          val ix = accX.toInt()
-                          val iy = accY.toInt()
-                          if (ix == 0 && iy == 0) return true
-                          accX -= ix
-                          accY -= iy
-                          if (dragMode == 1) {
-                              c.psSetInt(pre, "x", c.paX(idx) + ix)
-                              c.psSetInt(pre, "y", (c.paY(idx) + iy).coerceAtLeast(0))
-                          } else if (dragMode == 2) {
-                              val q = c.psPt(pre, dragTop, dragIdx)
-                              c.setPsPt(pre, dragTop, dragIdx, q[0] + ix, q[1] + iy)
-                          }
-                          Store.dragChanged()
-                          return true
-                      }
-                      MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                          dragMode = 0
-                          Store.dragDone()
-                          return true
-                      }
-                  }
-                  return true
-              }
-              override fun onDetachedFromWindow() {
-                  removeCallbacks(tick)
-                  super.onDetachedFromWindow()
-              }
-          }
-          KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
           cat > app/src/main/java/com/example/island/HaloFx.kt <<'KOTLIN_EOF'
           package com.example.island
@@ -5914,7 +4644,6 @@ jobs:
           import android.content.Context
           import android.content.Intent
           import android.content.IntentFilter
-          import android.content.res.Configuration
           import android.graphics.PixelFormat
           import android.hardware.camera2.CameraCharacteristics
           import android.hardware.camera2.CameraManager
@@ -5931,7 +4660,7 @@ jobs:
           import android.view.WindowManager
           import androidx.core.content.ContextCompat
 
-          /** Gère les deux fenêtres flottantes (barre + halo) au-dessus de tout, et leur visibilité */
+          /** Gère les fenêtres flottantes (barre, halo, masque, bouton d'encoche) au-dessus de tout, et leur visibilité */
           class BarController(private val svc: AccessibilityService) {
               private val wm = svc.getSystemService(Context.WINDOW_SERVICE) as WindowManager
               private val dm = svc.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
@@ -5943,38 +4672,20 @@ jobs:
               private val bar = BarView(svc, engine)
               private val halo = HaloView(svc, engine)
               private val notch = View(svc)
-              private val side = SideView(svc) { act(it) }
               private val mask = MaskView(svc)
-              private val drawer = DrawerView(svc) { engine.appIcon(it) }
-              private var drawerLp: WindowManager.LayoutParams? = null
-              private var drShown = false
-              private var drAnim: ValueAnimator? = null
-              private var drPkg = ""
-              private val drClose = Runnable { closeDrawer() }
               private var barLp: WindowManager.LayoutParams? = null
               private var haloLp: WindowManager.LayoutParams? = null
               private var notchLp: WindowManager.LayoutParams? = null
-              private var sideLp: WindowManager.LayoutParams? = null
               private var maskLp: WindowManager.LayoutParams? = null
               @Volatile
               private var fgPkg: String = ""
               private var lastOff = false
               private var lastMaskShow = true
-              private var lastLand = false
               private var haloAnim: ValueAnimator? = null
 
               /** Choix fait d'un appui sur l'encoche : 1 masque forcé, 0 masque enlevé, -1 automatique */
               @Volatile
               private var manual = -1
-              private val pas = Array(10) { PastilleView(svc, it) }
-              private var bdMode = 0
-              private var bdTop = true
-              private var bdIdx = 0
-              private var bdX = 0f
-              private var bdY = 0f
-              private var bdAx = 0f
-              private var bdAy = 0f
-              private val pasLp = Array(10) { WindowManager.LayoutParams() }
               private var added = false
 
               private val displayListener = object : DisplayManager.DisplayListener {
@@ -5990,19 +4701,6 @@ jobs:
                       updateVisibility()
                   }
               }
-
-              private val gesture = GestureDetector(svc, object : GestureDetector.SimpleOnGestureListener() {
-                  override fun onDown(e: MotionEvent): Boolean = true
-
-                  override fun onSingleTapUp(e: MotionEvent): Boolean {
-                      act(Store.cfg.tapAction)
-                      return true
-                  }
-
-                  override fun onLongPress(e: MotionEvent) {
-                      act(Store.cfg.longAction)
-                  }
-              })
 
               /** Bouton invisible posé sur l'encoche : appui court, long ou double */
               private val notchGesture = GestureDetector(svc, object : GestureDetector.SimpleOnGestureListener() {
@@ -6061,42 +4759,24 @@ jobs:
                   val bl = makeLp((c.width * d).toInt(), (c.height * d).toInt(), false)
                   val hl = makeLp(10, 10, false)
                   val nl = makeLp(10, 10, false)
-                  val sl = makeLp(10, 10, false)
                   val ml = makeLp(10, 10, false)
                   maskLp = ml
-                  val dl = makeLp(10, 10, false)
-                  drawerLp = dl
-                  drShown = false
-                  drawer.open = 0f
-                  drawer.visibility = View.INVISIBLE
                   lastOff = false
                   lastMaskShow = true
                   bar.fxReset()
                   barLp = bl
                   haloLp = hl
                   notchLp = nl
-                  sideLp = sl
-                  for (i in 0 until 10) {
-                      val pl = makeLp(1, 1, false)
-                      pl.gravity = Gravity.TOP or Gravity.LEFT
-                      pasLp[i] = pl
-                      pas[i].visibility = View.INVISIBLE
-                  }
                   try {
-                      wm.addView(drawer, dl)
                       wm.addView(mask, ml)
                       wm.addView(bar, bl)
                       wm.addView(halo, hl)
                       wm.addView(notch, nl)
-                      wm.addView(side, sl)
                       added = true
                   } catch (e: Exception) {
                       added = false
                       return
                   }
-                  drawer.onTap = { drawerTap() }
-                  drawer.onSwipeUp = { closeDrawer() }
-                  bar.setOnTouchListener { _, e -> if (Store.touchEdit && Store.dragGroup == 3) barDrag(e) else gesture.onTouchEvent(e) }
                   notch.setOnTouchListener { _, e -> notchGesture.onTouchEvent(e) }
                   dm.registerDisplayListener(displayListener, handler)
                   val f = IntentFilter()
@@ -6115,25 +4795,11 @@ jobs:
                       try { wm.removeView(bar) } catch (e: Exception) {}
                       try { wm.removeView(halo) } catch (e: Exception) {}
                       try { wm.removeView(notch) } catch (e: Exception) {}
-                      try { wm.removeView(side) } catch (e: Exception) {}
                       try { wm.removeView(mask) } catch (e: Exception) {}
-                      handler.removeCallbacks(drClose)
-                      drAnim?.cancel()
-                      drAnim = null
-                      drShown = false
-                      try { wm.removeView(drawer) } catch (e: Exception) {}
-                      for (i in 0 until 10) {
-                          try { wm.removeView(pas[i]) } catch (e: Exception) {}
-                      }
                       try { dm.unregisterDisplayListener(displayListener) } catch (e: Exception) {}
                       try { svc.unregisterReceiver(receiver) } catch (e: Exception) {}
                       added = false
                   }
-              }
-
-              /** Relit tous les réglages et met les fenêtres à jour immédiatement */
-              fun playTest(key: String?) {
-                  bar.playTest(key)
               }
 
               /** Bouton « Tester » : la barre efface ses infos avec l'effet, le masque apparaît avec son rebond, puis tout revient */
@@ -6194,11 +4860,6 @@ jobs:
                   bl.height = (c.height * d).toInt()
                   bl.x = (c.offX * d).toInt()
                   bl.y = (c.offY * d).toInt()
-                  val touch = c.tapAction != 0 || c.longAction != 0 || (Store.touchEdit && Store.dragGroup == 3)
-                  var fl = bl.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-                  fl = fl and WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL.inv()
-                  fl = fl or (if (touch) WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
-                  bl.flags = fl
                   try { wm.updateViewLayout(bar, bl) } catch (e: Exception) {}
 
                   val size = halo.size(c)
@@ -6231,52 +4892,10 @@ jobs:
                       try { wm.updateViewLayout(notch, nl) } catch (e: Exception) {}
                   }
 
-                  // poignée latérale
-                  val sl = sideLp
-                  if (sl != null) {
-                      if (c.sideOn) {
-                          sl.width = maxOf((c.sideTouchW * d).toInt(), (c.sideThick * d).toInt() + 2)
-                          sl.height = (c.sideLen * d).toInt().coerceAtLeast(1)
-                          sl.gravity = Gravity.TOP or (if (c.sideRight) Gravity.RIGHT else Gravity.LEFT)
-                          sl.x = 0
-                          sl.y = (c.sideY * d).toInt()
-                      } else {
-                          sl.width = 1
-                          sl.height = 1
-                      }
-                      setTouchable(sl, c.sideOn && !Store.sideEdit)
-                      try { wm.updateViewLayout(side, sl) } catch (e: Exception) {}
-                      side.post { side.invalidate() }
-                  }
-
-                  // pastilles : une fenêtre par pastille, juste assez grande pour la forme et ses points
+                  // masque : fenêtre de la largeur de l'écran, la forme est dessinée en pixels réels à l'intérieur
                   val dmx = svc.resources.displayMetrics
                   val sw = dmx.widthPixels
                   val sh = dmx.heightPixels
-                  for (i in 0 until 10) {
-                      val pre = "pa" + i + "_"
-                      val pw = c.psInt(pre, "w", 120)
-                      val ph = c.psInt(pre, "h", 60)
-                      val left = sw / 2 + c.paX(i) - pw / 2
-                      val top = c.paY(i)
-                      val mg = 40
-                      val wl = maxOf(0, left - mg)
-                      val wt = maxOf(0, top - mg)
-                      val wr = minOf(sw, left + pw + mg)
-                      val wb = minOf(sh, top + ph + mg)
-                      val pl = pasLp[i]
-                      pl.x = wl
-                      pl.y = wt
-                      pl.width = maxOf(1, wr - wl)
-                      pl.height = maxOf(1, wb - wt)
-                    setTouchable(pl, Store.touchEdit && Store.dragGroup == 2)
-                      pas[i].ox = (left - wl).toFloat()
-                      pas[i].oy = (top - wt).toFloat()
-                      try { wm.updateViewLayout(pas[i], pl) } catch (e: Exception) {}
-                      val pv = pas[i]
-                      pv.post { pv.invalidate() }
-                  }
-                  // masque : fenêtre de la largeur de l'écran, la forme est dessinée en pixels réels à l'intérieur
                   val ml = maskLp
                   if (ml != null) {
                       // fenêtre ajustée à la forme (avec une marge pour la bordure et le halo) ; elle englobe aussi la barre pendant la transformation
@@ -6306,19 +4925,10 @@ jobs:
                       mask.winX = wl
                       mask.winY = wt
                       mask.screenW = sw
-                      setTouchable(ml, Store.touchEdit && Store.dragGroup == 1 && Store.maskEdit)
                       try { wm.updateViewLayout(mask, ml) } catch (e: Exception) {}
                       mask.post { mask.invalidate() }
                   }
 
-                  if (drShown) {
-                      if (!c.drOn) {
-                          closeDrawer()
-                      } else {
-                          drawer.prepare()
-                          layoutDrawer()
-                      }
-                  }
                   updateVisibility()
                   refresh()
               }
@@ -6327,10 +4937,9 @@ jobs:
                   if (!added) return
                   bar.refresh()
                   halo.refresh()
-                  side.refresh()
               }
 
-              /** Masque la barre sur l'AOD / l'écran verrouillé / en paysage selon les options */
+              /** Décide si le masque remplace la barre (applis choisies, réglage du masque, appui sur l'encoche) et lance la transition */
               fun updateVisibility() {
                   if (!added) return
                   val c = Store.cfg
@@ -6338,24 +4947,14 @@ jobs:
                   val st = disp?.state ?: Display.STATE_ON
                   val aod = st == Display.STATE_DOZE || st == Display.STATE_DOZE_SUSPEND
                   val locked = st == Display.STATE_ON && km.isKeyguardLocked
-                  val land = svc.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                  val hidden = (c.hideAod && aod) || (c.hideLock && locked) || (c.hideLand && land)
-
-                  // rotation : le choix fait d'un appui sur l'encoche redevient automatique
-                  if (land != lastLand) {
-                      lastLand = land
-                      if (c.maskLand) manual = -1
-                  }
-                  // masque en paysage : actif tant que l'écran est en paysage, désactivé dès le retour en portrait
-                  val inLand = c.maskOn && c.maskLand && land && !aod && !locked
 
                   // le masque remplace la barre dans les applis choisies (et pendant le réglage du masque)
                   // le choix fait d'un appui sur l'encoche est remis en automatique au verrouillage et au changement d'appli
                   if (aod || locked) manual = -1
                   val inApp = c.maskOn && !aod && !locked && fgPkg.isNotEmpty() && c.maskApps.contains(fgPkg)
-                  val replace = Store.maskEdit || (manual == 1 && !hidden) || ((inApp || inLand) && manual != 0)
-                  val maskShow = replace || (c.maskOn && c.maskWhenHidden && hidden && manual != 0)
-                  val off = hidden || replace
+                  val replace = Store.maskEdit || manual == 1 || (inApp && manual != 0)
+                  val maskShow = replace
+                  val off = replace
 
                   // transition entre la barre et le masque : la forme se transforme, ou simple fondu
                   val ms = c.maskFade.toLong()
@@ -6377,7 +4976,6 @@ jobs:
                               fadeTo(bar, false, ms / 2, 0L)
                           }
                           fadeTo(halo, false, ms, 0L)
-                          fadeTo(side, false, ms, 0L)
                       } else if (morph && !maskShow && lastMaskShow && lastOff && !off) {
                           startMorph(false, ms)
                           if (fxIn) {
@@ -6389,7 +4987,6 @@ jobs:
                               fadeTo(bar, true, ms / 2, ms / 2)
                           }
                           relightHalo(ms / 2, ms / 2)
-                          fadeTo(side, true, ms, 0L)
                       } else {
                           mask.cancelMorph()
                           if (off) {
@@ -6410,31 +5007,21 @@ jobs:
                               }
                           }
                           if (off) fadeTo(halo, false, ms, 0L) else relightHalo(0L, ms)
-                          fadeTo(side, !off, ms, 0L)
                           fadeTo(mask, maskShow, ms, 0L)
                           if (maskShow && !lastMaskShow) mask.bounceIn(c.maskBounce, c.maskBounceAmp)
                       }
                       lastOff = off
                       lastMaskShow = maskShow
                   }
-                  // pastilles : visibles si activées (ou en cours de réglage), sauf quand la barre est cachée
-                  for (i in 0 until 10) {
-                      val pre = "pa" + i + "_"
-                      val show = false
-                      pas[i].visibility = if (show) View.VISIBLE else View.INVISIBLE
-                  }
                   // la zone tactile de l'encoche reste active pendant le masque si une action sert à l'afficher ou l'enlever
                   val maskTap = c.holeTap == 11 || c.holeLong == 11 || c.holeDouble == 11
-                  notch.visibility = if (hidden) View.INVISIBLE else if (!off || maskTap) View.VISIBLE else View.INVISIBLE
+                  notch.visibility = if (!off || maskTap) View.VISIBLE else View.INVISIBLE
                   bar.syncAnim()
                   halo.syncAnim()
                   mask.syncAnim(maskShow)
 
-                  if (drShown) {
-                      if (lastOff && !lastMaskShow) closeDrawer() else layoutDrawer()
-                  }
-
-                  if (off || st == Display.STATE_OFF) engine.stop() else engine.start()
+                  // écran éteint ou en veille (AOD) : on arrête les mesures pour ne pas consommer de batterie
+                  if (off || st == Display.STATE_OFF || aod) engine.stop() else engine.start()
               }
 
               /** Arrête l'effet de rallumage du halo et remet son aspect normal */
@@ -6509,156 +5096,6 @@ jobs:
                       halo.visibility = if (lastOff) View.INVISIBLE else View.VISIBLE
                   }, 500L + c.haloFxMs + 900L)
               }
-              // ---------------------------------------------------------------- tiroir de notification
-
-              /** Une notification vient d'arriver (ou de changer) */
-              fun onNotif(e: NotifEvent) {
-                  if (!added) return
-                  val c = Store.cfg
-                  if (!c.drOn) return
-                  if (e.music && !c.drMusic) return
-                  if (c.drBlock.contains(e.pkg)) return
-                  if (c.drSkipFg && e.pkg == fgPkg) return
-                  val st = dm.getDisplay(Display.DEFAULT_DISPLAY)?.state ?: Display.STATE_ON
-                  if (st != Display.STATE_ON) return
-                  if (km.isKeyguardLocked && !c.drLock) return
-                  if (lastOff && !lastMaskShow) return
-                  showDrawer(e.pkg, e.title, e.text)
-              }
-
-              /** Bouton « Tester » : 0 message long, 1 titre de musique long */
-              fun testDrawer(kind: Int) {
-                  if (!added) return
-                  if (kind == 0) {
-                      showDrawer(svc.packageName, "Julie", "Coucou ! Tu es dispo ce soir pour aller voir le film dont je t'ai parlé hier ? On pourrait manger un morceau avant, je connais un super petit resto pas loin du cinéma.")
-                  } else {
-                      showDrawer(svc.packageName, "Harder, Better, Faster, Stronger (Alive 2007 – version longue)", "Daft Punk · Alive 2007")
-                  }
-              }
-
-              private fun showDrawer(pkg: String, title: String, text: String) {
-                  val c = Store.cfg
-                  handler.removeCallbacks(drClose)
-                  drawer.pkg = pkg
-                  drawer.title = title
-                  drawer.text = text
-                  drawer.prepare()
-                  drawerLp?.let { setTouchable(it, true) }
-                  layoutDrawer()
-                  val wasOpen = drShown && drawer.open >= 0.999f
-                  drShown = true
-                  drPkg = pkg
-                  drawer.visibility = View.VISIBLE
-                  val slide = if (wasOpen) 0L else c.drSlideMs.toLong()
-                  drawer.scrollT0 = android.os.SystemClock.uptimeMillis() + slide
-                  animateDrawer(true)
-                  var stay = c.drDur.toLong()
-                  if (c.drExtend) {
-                      stay = maxOf(stay, drawer.scrollMs() + 800L).coerceAtMost(c.drMax * 1000L)
-                  }
-                  handler.postDelayed(drClose, slide + stay)
-                  drawer.invalidate()
-              }
-
-              /** Place la fenêtre du tiroir juste sous la barre (ou sous le masque quand il la remplace) */
-              private fun layoutDrawer() {
-                  val dl = drawerLp ?: return
-                  val c = Store.cfg
-                  val sw = svc.resources.displayMetrics.widthPixels
-                  val w = (c.drW * d).toInt()
-                  val h = (c.drH * d).toInt()
-                  val bottom: Float
-                  val cx: Float
-                  if (lastOff && lastMaskShow) {
-                      val bb = MaskView.bounds(c, sw)
-                      bottom = bb[3].toFloat()
-                      cx = (bb[0] + bb[2]) / 2f - sw / 2f
-                  } else {
-                      bottom = (c.offY + c.height) * d
-                      cx = c.offX * d
-                  }
-                  dl.width = w
-                  dl.height = h + (h * 0.4f).toInt()
-                  dl.x = (cx + c.drOffX * d).toInt()
-                  dl.y = (bottom + c.drGap * d).toInt().coerceAtLeast(0)
-                  try { wm.updateViewLayout(drawer, dl) } catch (e: Exception) {}
-              }
-
-              private fun animateDrawer(open: Boolean) {
-                  val c = Store.cfg
-                  val to = if (open) 1f else 0f
-                  val from = drawer.open
-                  drAnim?.cancel()
-                  drAnim = null
-                  if (open && from >= 0.999f) {
-                      drawer.open = 1f
-                      return
-                  }
-                  val ms = c.drSlideMs.toLong()
-                  if (ms <= 0L) {
-                      drawer.open = to
-                      if (!open) finishDrawer()
-                      return
-                  }
-                  val a = ValueAnimator.ofFloat(from, to)
-                  a.duration = if (open) ms else (ms * 0.8f).toLong().coerceAtLeast(120L)
-                  a.interpolator = if (!open) {
-                      android.view.animation.AccelerateInterpolator(1.4f)
-                  } else when (c.drStyle) {
-                      2 -> android.view.animation.OvershootInterpolator(2.2f)
-                      3 -> android.view.animation.BounceInterpolator()
-                      else -> android.view.animation.DecelerateInterpolator(1.8f)
-                  }
-                  a.addUpdateListener { drawer.open = it.animatedValue as Float }
-                  a.addListener(object : AnimatorListenerAdapter() {
-                      private var cancelled = false
-
-                      override fun onAnimationCancel(animation: Animator) {
-                          cancelled = true
-                      }
-
-                      override fun onAnimationEnd(animation: Animator) {
-                          if (cancelled) return
-                          drawer.open = to
-                          drAnim = null
-                          if (!open) finishDrawer()
-                      }
-                  })
-                  drAnim = a
-                  a.start()
-              }
-
-              private fun closeDrawer() {
-                  handler.removeCallbacks(drClose)
-                  if (!drShown) return
-                  animateDrawer(false)
-              }
-
-              private fun finishDrawer() {
-                  drShown = false
-                  drawer.visibility = View.INVISIBLE
-                  drawerLp?.let {
-                      setTouchable(it, false)
-                      try { wm.updateViewLayout(drawer, it) } catch (e: Exception) {}
-                  }
-              }
-
-              private fun drawerTap() {
-                  when (Store.cfg.drTap) {
-                      0 -> {
-                          val i = svc.packageManager.getLaunchIntentForPackage(drPkg)
-                          if (i != null) {
-                              i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                              try { svc.startActivity(i) } catch (e: Exception) {}
-                          }
-                          closeDrawer()
-                      }
-                      1 -> closeDrawer()
-                      else -> {}
-                  }
-              }
-
-
               /** Affiche ou cache une fenêtre avec un fondu (ms = 0 : instantané), éventuellement après un délai */
               private fun fadeTo(v: View, show: Boolean, ms: Long, delay: Long) {
                   if (v === halo) haloFxStop()
@@ -6698,72 +5135,11 @@ jobs:
                       if (!toMask) mask.visibility = View.INVISIBLE else mask.bounceIn(c.maskBounce, c.maskBounceAmp)
                   }
               }
-              /** Réglage de la forme de la barre : glisser déplace la barre, toucher un point (forme libre) déplace ce point */
-              private fun barDrag(e: MotionEvent): Boolean {
-                  val c = Store.cfg
-                  when (e.actionMasked) {
-                      MotionEvent.ACTION_DOWN -> {
-                          bdX = e.rawX
-                          bdY = e.rawY
-                          bdAx = 0f
-                          bdAy = 0f
-                          bdMode = 1
-                          if (c.shape == 8) {
-                              val n = c.psN("bs_")
-                              val xs = FloatArray(n * 2)
-                              val ys = FloatArray(n * 2)
-                              PointShape.pts(c, "bs_", 0f, 0f, bar.width.toFloat(), bar.height.toFloat(), xs, ys)
-                              val k = Drag.nearest(xs, ys, e.x, e.y, 50f)
-                              if (k >= 0) {
-                                  bdMode = 2
-                                  bdTop = k < n
-                                  bdIdx = if (k < n) k else n * 2 - 1 - k
-                                  Store.psSelTop = bdTop
-                                  Store.psSelIdx = bdIdx
-                                  bar.invalidate()
-                              }
-                          }
-                          return true
-                      }
-                      MotionEvent.ACTION_MOVE -> {
-                          bdAx += e.rawX - bdX
-                          bdAy += e.rawY - bdY
-                          bdX = e.rawX
-                          bdY = e.rawY
-                          if (bdMode == 1) {
-                              val ix = (bdAx / d).toInt()
-                              val iy = (bdAy / d).toInt()
-                              if (ix == 0 && iy == 0) return true
-                              bdAx -= ix * d
-                              bdAy -= iy * d
-                              c.offX = c.offX + ix
-                              c.offY = (c.offY + iy).coerceAtLeast(0)
-                          } else if (bdMode == 2) {
-                              val ix = bdAx.toInt()
-                              val iy = bdAy.toInt()
-                              if (ix == 0 && iy == 0) return true
-                              bdAx -= ix
-                              bdAy -= iy
-                              val q = c.psPt("bs_", bdTop, bdIdx)
-                              c.setPsPt("bs_", bdTop, bdIdx, q[0] + ix, q[1] + iy)
-                          }
-                          Store.dragChanged()
-                          return true
-                      }
-                      MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                          bdMode = 0
-                          Store.dragDone()
-                          return true
-                      }
-                  }
-                  return true
-              }
               /** Appelé quand l'appli au premier plan change */
               fun setForeground(pkg: String) {
                   if (pkg == fgPkg) return
                   fgPkg = pkg
                   manual = -1
-                  if (drShown && pkg == drPkg && Store.cfg.drSkipFg) handler.post { closeDrawer() }
                   handler.post { updateVisibility() }
               }
 
@@ -6891,7 +5267,6 @@ jobs:
                   val c = BarController(this)
                   controller = c
                   NotifState.onChange = { c.refresh() }
-                  NotifState.onPosted = { c.onNotif(it) }
                   c.start()
               }
 
@@ -6900,20 +5275,12 @@ jobs:
                   controller?.apply()
               }
 
-              fun playTest(key: String?) {
-                  controller?.playTest(key)
-              }
-
               fun testTransition() {
                   controller?.testTransition()
               }
 
               fun testHalo() {
                   controller?.testHalo()
-              }
-
-              fun testDrawer(kind: Int) {
-                  controller?.testDrawer(kind)
               }
 
               fun detect(cb: (IntArray?) -> Unit) {
@@ -6951,7 +5318,6 @@ jobs:
 
               override fun onUnbind(intent: Intent?): Boolean {
                   NotifState.onChange = null
-                  NotifState.onPosted = null
                   controller?.stop()
                   controller = null
                   instance = null
@@ -7270,9 +5636,8 @@ jobs:
               override fun onPause() {
                   setMaskEdit(false)
                   Store.uiRefresh = null
-                  if (Store.psEdit.isNotEmpty() || Store.dragGroup != 0) {
+                  if (Store.psEdit.isNotEmpty()) {
                       Store.psEdit = ""
-                      Store.dragGroup = 0
                       IslandAccessibilityService.instance?.reload()
                   }
                   engine.stop()
@@ -7308,7 +5673,7 @@ jobs:
                   return s
               }
 
-              /** Montre (ou cache) la zone tactile de la poignée sur l'écran pendant qu'on la règle */
+              /** Montre (ou cache) le masque avec son contour pendant qu'on le règle */
               /** Montre (ou cache) le masque en direct sur l'écran pendant que l'onglet Masque est ouvert */
               private fun setMaskEdit(v: Boolean) {
                   if (Store.maskEdit == v) return
@@ -7350,41 +5715,6 @@ jobs:
                       .create()
                   dlg.show()
                   // le bouton coche ou décoche toute la liste sans fermer la fenêtre
-                  val all = dlg.getButton(android.content.DialogInterface.BUTTON_NEUTRAL)
-                  all.setOnClickListener {
-                      val allOn = checked.all { it }
-                      for (i in list.indices) {
-                          checked[i] = !allOn
-                          dlg.listView.setItemChecked(i, !allOn)
-                      }
-                      all.text = if (allOn) "Tout cocher" else "Tout décocher"
-                  }
-              }
-
-              /** Fenêtre de choix d'applis (cases à cocher) pour une liste de paquets */
-              private fun pickAppList(title: String, sel: List<String>, save: (List<String>) -> Unit) {
-                  val pm = packageManager
-                  val q = Intent(Intent.ACTION_MAIN)
-                  q.addCategory(Intent.CATEGORY_LAUNCHER)
-                  val list = pm.queryIntentActivities(q, 0)
-                      .map { Pair(it.activityInfo.packageName, it.loadLabel(pm).toString()) }
-                      .distinctBy { it.first }
-                      .sortedBy { it.second.lowercase() }
-                  val checked = BooleanArray(list.size) { sel.contains(list[it].first) }
-                  val dlg = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-                      .setTitle(title)
-                      .setMultiChoiceItems(list.map { it.second }.toTypedArray(), checked) { _, which, on -> checked[which] = on }
-                      .setPositiveButton("OK") { _, _ ->
-                          val keep = ArrayList<String>()
-                          for (i in list.indices) if (checked[i]) keep.add(list[i].first)
-                          save(keep)
-                          commit()
-                          rebuild()
-                      }
-                      .setNegativeButton("Annuler", null)
-                      .setNeutralButton(if (checked.all { it }) "Tout décocher" else "Tout cocher", null)
-                      .create()
-                  dlg.show()
                   val all = dlg.getButton(android.content.DialogInterface.BUTTON_NEUTRAL)
                   all.setOnClickListener {
                       val allOn = checked.all { it }
@@ -7507,24 +5837,11 @@ jobs:
                   b.addView(ui.hint("Le miroir recopie les points de la moitié gauche sur la moitié droite (décalage horizontal inversé), pour une forme symétrique."))
                   return b
               }
-
-              private fun setSideEdit(v: Boolean) {
-                  if (Store.sideEdit == v) return
-                  Store.sideEdit = v
-                  IslandAccessibilityService.instance?.reload()
-              }
-
               private fun showTab(i: Int) {
                   tab = i
                   setMaskEdit(i == 7)
                   val oldEdit = Store.psEdit
-                  val oldGroup = Store.dragGroup
                   Store.psEdit = ""
-                  Store.dragGroup = when (i) {
-                      0 -> 3
-                      7 -> 1
-                      else -> 0
-                  }
                   for (k in 0 until tabRow.childCount) ui.styleChip(tabRow.getChildAt(k) as TextView, k == i)
                   content.removeAllViews()
                   val v = when (i) {
@@ -7538,7 +5855,7 @@ jobs:
                       else -> scroll(tabOptions())
                   }
                   content.addView(v, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
-                  if (Store.psEdit != oldEdit || Store.dragGroup != oldGroup) IslandAccessibilityService.instance?.reload()
+                  if (Store.psEdit != oldEdit) IslandAccessibilityService.instance?.reload()
               }
 
               /** Reconstruit l'onglet courant en gardant la position de défilement */
@@ -7770,40 +6087,8 @@ jobs:
                   return b
               }
 
-              // ---------------------------------------------------------------- CÔTÉ
 
-              private fun tabSide(): View {
-                  val c = Store.cfg
-                  val b = ui.vbox()
-                  b.addView(ui.section("Poignée sur le côté de l'écran"))
-                  b.addView(ui.hint("Une seconde encoche : touche-la ou glisse dessus pour ouvrir le panneau de notifications d'origine, ou lancer une autre action."))
-                  b.addView(ui.hint("Tant que cet onglet est ouvert, la zone tactile apparaît en violet pointillé sur le bord de ton écran (elle ne réagit pas au toucher pour ne pas gêner les réglages)."))
-                  b.addView(ui.toggle("Activer la poignée", { c.sideOn }, { c.sideOn = it }) { rebuild() })
-                  if (c.sideOn) {
-                      b.addView(ui.chips("Côté", listOf("◀ Gauche", "Droite ▶"), { if (c.sideRight) 1 else 0 }, { c.sideRight = it == 1 }))
-                      b.addView(ui.slider("Position depuis le haut", 0, 900, { c.sideY }, { c.sideY = it }, " dp"))
-                      b.addView(ui.slider("Longueur", 20, 500, { c.sideLen }, { c.sideLen = it }, " dp"))
-                      b.addView(ui.slider("Largeur de la zone tactile", 8, 80, { c.sideTouchW }, { c.sideTouchW = it }, " dp"))
-
-                      b.addView(ui.section("Apparence"))
-                      b.addView(ui.toggle("Afficher la poignée", { c.sideVisible }, { c.sideVisible = it }))
-                      b.addView(ui.colorRow("Couleur", { c.sideColor }, { c.sideColor = it }))
-                      b.addView(ui.slider("Épaisseur", 2, 24, { c.sideThick }, { c.sideThick = it }, " dp"))
-                      b.addView(ui.toggle("Visible seulement quand il y a une notification", { c.sideOnNotif }, { c.sideOnNotif = it }))
-
-                      b.addView(ui.section("Actions"))
-                      b.addView(ui.chips("Appui court", Actions.names, { c.sideTap }, { c.sideTap = it }))
-                      b.addView(ui.chips("Appui long", Actions.names, { c.sideLong }, { c.sideLong = it }))
-                      b.addView(ui.chips("Glisser vers le bas", Actions.names, { c.sideDown }, { c.sideDown = it }))
-                      b.addView(ui.chips("Glisser vers le haut", Actions.names, { c.sideUp }, { c.sideUp = it }))
-                      b.addView(ui.chips("Glisser vers le centre de l'écran", Actions.names, { c.sideIn }, { c.sideIn = it }))
-                  }
-                  return b
-              }
-
-              // ---------------------------------------------------------------- JAUGES
-
-              /** Éditeur de contour à points (barre de statut, pastilles) : tout en pixels, avec un point rouge sur le point réglé */
+              /** Éditeur de contour à points (barre de statut) : tout en pixels, avec un point rouge sur le point réglé */
               private fun pointEditor(pre: String): View {
                   val c = Store.cfg
                   val b = ui.vbox()
@@ -7834,139 +6119,6 @@ jobs:
                   })
                   return b
               }
-
-              // ---------------------------------------------------------------- PASTILLES
-
-              private fun tabPas(): View {
-                  val c = Store.cfg
-                  val b = ui.vbox()
-                  val dmx = resources.displayMetrics
-                  val sw = dmx.widthPixels
-                  val sh = dmx.heightPixels
-                  val sel = Store.paSel.coerceIn(0, 9)
-                  val pre = "pa" + sel + "_"
-                  Store.psEdit = pre
-                  var active = 0
-                  for (i in 0 until 10) if (c.psBool("pa" + i + "_", "on", false)) active++
-
-                  b.addView(ui.section("Pastilles indépendantes"))
-                  b.addView(ui.hint(active.toString() + " pastille(s) active(s) sur 10. Choisis un numéro et règle-le : la pastille apparaît en direct sur ton écran, même éteinte, tant que cet onglet est ouvert."))
-                  b.addView(ui.toggle("✋ Déplacer au toucher sur l'écran", { Store.touchEdit }, { Store.touchEdit = it }))
-                  b.addView(ui.hint("Touche une pastille sur ton écran pour la choisir, puis fais-la glisser pour la placer. En forme libre, touche un de ses points pour le déplacer."))
-                  b.addView(ui.chips("Pastille n°", (1..10).map { it.toString() }, { sel }, { Store.paSel = it }) { rebuild() })
-                  b.addView(ui.toggle("Activée", { c.psBool(pre, "on", false) }, { c.psSetBool(pre, "on", it) }) { rebuild() })
-
-                  b.addView(ui.section("Taille et position (pixels)"))
-                  b.addView(ui.slider("Largeur", 4, sw, { c.psInt(pre, "w", 120) }, { c.psSetInt(pre, "w", it) }, " px"))
-                  b.addView(ui.slider("Hauteur", 4, sw, { c.psInt(pre, "h", 60) }, { c.psSetInt(pre, "h", it) }, " px"))
-                  b.addView(ui.slider("Décalage horizontal (0 = centre de l'écran)", -sw / 2, sw / 2, { c.paX(sel) }, { c.psSetInt(pre, "x", it) }, " px"))
-                  b.addView(ui.slider("Distance depuis le haut", 0, sh, { c.paY(sel) }, { c.psSetInt(pre, "y", it) }, " px"))
-
-                  b.addView(ui.section("Forme"))
-                  b.addView(ui.chips(null, listOf("● Ovale", "▢ Arrondi", "✏️ Libre (points)"), { c.psInt(pre, "shape", 1) }, { c.psSetInt(pre, "shape", it) }) { rebuild() })
-                  val kind = c.psInt(pre, "shape", 1)
-                  if (kind == 1) {
-                      b.addView(ui.slider("Arrondi (0 = carré, 100 = rond ou pilule)", 0, 100, { c.psInt(pre, "rad", 100) }, { c.psSetInt(pre, "rad", it) }, " %"))
-                  }
-                  if (kind == 2) {
-                      b.addView(pointEditor(pre))
-                  }
-
-                  b.addView(ui.section("Couleurs"))
-                  b.addView(ui.colorRow("Fond (avec transparence)", { c.psInt(pre, "fill", 0xFF1C1C1E.toInt()) }, { c.psSetInt(pre, "fill", it) }))
-                  b.addView(ui.slider("Épaisseur de la bordure", 0, 20, { c.psInt(pre, "bw", 0) }, { c.psSetInt(pre, "bw", it) }, " px") )
-                  if (c.psInt(pre, "bw", 0) > 0) {
-                      b.addView(ui.colorRow("Couleur de la bordure", { c.psInt(pre, "bc", 0xFFFFFFFF.toInt()) }, { c.psSetInt(pre, "bc", it) }))
-                  }
-
-                  b.addView(ui.section("Contenu"))
-                  b.addView(ui.chips(null, listOf("Vide", "🕐 Heure", "🔋 Batterie", "✍️ Texte"), { c.psInt(pre, "ct", 0) }, { c.psSetInt(pre, "ct", it) }) { rebuild() })
-                  val ct = c.psInt(pre, "ct", 0)
-                  if (ct == 3) {
-                      b.addView(ui.edit("Texte", { c.psStr(pre, "tx", "") }, { c.psSetStr(pre, "tx", it) }))
-                  }
-                  if (ct != 0) {
-                      b.addView(ui.colorRow("Couleur du texte", { c.psInt(pre, "tc", 0xFFFFFFFF.toInt()) }, { c.psSetInt(pre, "tc", it) }, false))
-                      b.addView(ui.slider("Taille du texte", 6, 60, { c.psInt(pre, "ts", 16) }, { c.psSetInt(pre, "ts", it) }, " dp"))
-                  }
-
-                  b.addView(ui.section("Options"))
-                  b.addView(ui.toggle("Cacher quand le masque remplace la barre", { c.psBool(pre, "hm", false) }, { c.psSetBool(pre, "hm", it) }))
-                  b.addView(ui.button("♻️ Réinitialiser cette pastille") {
-                      c.psClear(pre)
-                      commit()
-                      rebuild()
-                  })
-                  return b
-              }
-
-              private fun tabGauges(): View {
-                  val c = Store.cfg
-                  val b = ui.vbox()
-                  b.addView(ui.section("Fines barres de progression"))
-                  b.addView(ui.hint("Une fine ligne collée à un bord de la barre, qui se remplit selon l'info choisie : en bas (horizontale) ou sur un côté (verticale). Tu peux en avoir quatre, avec des infos différentes."))
-                  val srcNames = listOf("🔋 Batterie", "📡 Signal mobile", "📶 Wi‑Fi", "🧠 Mémoire RAM", "💾 Stockage", "🔊 Volume", "🔆 Luminosité", "⚡ Puissance de charge", "🌗 Journée écoulée", "⏱️ Secondes")
-                  for (i in 1..4) {
-                      b.addView(ui.section("Fine barre " + i))
-                      b.addView(ui.toggle("Activée", { c.gaugeBool(i, "on", i == 1) }, { c.setGaugeBool(i, "on", it) }) { rebuild() })
-                      if (c.gaugeBool(i, "on", i == 1)) {
-                          val vert = c.gaugePos(i) != 0
-                          b.addView(ui.chips("Ce qu'elle montre", srcNames, { c.gaugeInt(i, "src", if (i == 1) 0 else 1) }, { c.setGaugeInt(i, "src", it) }))
-                          b.addView(ui.chips("Position", listOf("▁ En bas", "▏ Côté gauche (verticale)", "▕ Côté droit (verticale)"), { c.gaugePos(i) }, { c.setGaugeInt(i, "pos", it) }) { rebuild() })
-                          val fromNames = if (vert) listOf("▲ Le bas (elle monte)", "↔ Le centre", "▼ Le haut (elle descend)") else listOf("◀ La gauche", "↔ Le centre", "La droite ▶")
-                          b.addView(ui.chips("Se remplit depuis", fromNames, { c.gaugeInt(i, "from", 0) }, { c.setGaugeInt(i, "from", it) }))
-                          b.addView(ui.slider("Épaisseur", 1, 8, { c.gaugeInt(i, "th", 2) }, { c.setGaugeInt(i, "th", it) }, " dp"))
-                          b.addView(ui.slider(if (vert) "Marge en haut et en bas" else "Marge sur les côtés", 0, 80, { c.gaugeInt(i, "inset", 0) }, { c.setGaugeInt(i, "inset", it) }, " dp"))
-                          b.addView(ui.toggle("Rail transparent derrière", { c.gaugeBool(i, "trk", true) }, { c.setGaugeBool(i, "trk", it) }))
-                          b.addView(ui.toggle("Couleur automatique selon la valeur", { c.gaugeBool(i, "auto", true) }, { c.setGaugeBool(i, "auto", it) }) { rebuild() })
-                          if (!c.gaugeBool(i, "auto", true)) {
-                              b.addView(ui.colorRow("Couleur", { c.gaugeInt(i, "col", Pal.CYAN) }, { c.setGaugeInt(i, "col", it) }))
-                          }
-                      }
-                  }
-                  return b
-              }
-              // ---------------------------------------------------------------- ANIMATIONS
-
-              private fun playAnim(key: String?) {
-                  bar.playTest(key)
-                  IslandAccessibilityService.instance?.playTest(key)
-              }
-
-              private fun tabAnim(): View {
-                  val c = Store.cfg
-                  val b = ui.vbox()
-                  b.addView(ui.section("Animations"))
-                  b.addView(ui.toggle("Activer les animations", { c.animOn }, { c.animOn = it }))
-                  b.addView(ui.hint("Un effet lumineux traverse la barre quand il se passe quelque chose sur le téléphone."))
-                  b.addView(ui.button("▶ Tout tester (aperçu + vraie barre)") { playAnim(null) })
-                  b.addView(ui.section("Chaque événement : activer, couleur, essai"))
-                  val evs = listOf(
-                      Triple("plug", "🔌 Je branche le chargeur", tc("batt_plug", Pal.GREEN)),
-                      Triple("unplug", "🔋 Je débranche le chargeur", Pal.ORANGE),
-                      Triple("full", "✅ Batterie pleine (100 %)", tc("cs_full", Pal.CYAN)),
-                      Triple("low", "🪫 Batterie faible (15 %)", Pal.RED),
-                      Triple("net", "📡 Le réseau change (4G → 5G…)", Pal.PURPLE),
-                      Triple("wifi", "📶 Wi‑Fi connecté ou perdu", Pal.GREEN),
-                      Triple("notif", "🔔 Nouvelle notification", tc("notif", Pal.PINK)),
-                      Triple("mode", "✈️ Avion, Ne pas déranger, Sonnerie", Pal.ORANGE)
-                  )
-                  for (e in evs) {
-                      b.addView(ui.toggle(e.second, { c.animFlag(e.first) }, { c.setAnimFlag(e.first, it) }))
-                      b.addView(ui.colorRow("Couleur", { c.animColor(e.first, e.third) }, { c.setAnimColor(e.first, it) }, false))
-                      b.addView(ui.button("▶ Essayer celle-ci") { playAnim(e.first) })
-                  }
-                  b.addView(ui.section("Style du balayage"))
-                  b.addView(ui.chips("Effet", listOf("➡️ Balayage lumineux", "💥 Flash", "✨ Balayage + flash"), { c.animStyle }, { c.animStyle = it }))
-                  b.addView(ui.chips("Sens du balayage", listOf("🔄 Automatique", "➡️ Toujours vers la droite", "⬅️ Toujours vers la gauche"), { c.animDirMode }, { c.animDirMode = it }))
-                  b.addView(ui.slider("Largeur du balayage", 10, 100, { c.animWidth }, { c.animWidth = it }, " %"))
-                  b.addView(ui.slider("Nombre de passages", 1, 4, { c.animRep }, { c.animRep = it }))
-                  b.addView(ui.slider("Durée d'un passage", 400, 3000, { c.animDur }, { c.animDur = it }, " ms"))
-                  b.addView(ui.slider("Intensité", 10, 100, { c.animPower }, { c.animPower = it }, " %"))
-                  b.addView(ui.hint("Par défaut, le branchement balaie vers la droite et le débranchement vers la gauche. Batterie pleine et batterie faible font des pulsations. Le bouton « Essayer » joue l'animation sur l'aperçu et sur la vraie barre."))
-                  return b
-              }
-
               private fun detect() {
                   val s = IslandAccessibilityService.instance
                   if (s == null) {
@@ -8284,317 +6436,6 @@ jobs:
           }
           KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
-          cat > app/src/main/java/com/example/island/DrawerView.kt <<'KOTLIN_EOF'
-          package com.example.island
-
-          import android.content.Context
-          import android.graphics.Canvas
-          import android.graphics.Color
-          import android.graphics.LinearGradient
-          import android.graphics.Paint
-          import android.graphics.Path
-          import android.graphics.RectF
-          import android.graphics.Shader
-          import android.graphics.Typeface
-          import android.graphics.drawable.Drawable
-          import android.os.SystemClock
-          import android.view.GestureDetector
-          import android.view.MotionEvent
-          import android.view.View
-
-          /** Tiroir de notification : sort de sous la barre ; un texte trop long défile */
-          class DrawerView(ctx: Context, private val iconOf: (String) -> Drawable?) : View(ctx) {
-              private val d = ctx.resources.displayMetrics.density
-              private val bg = Paint(Paint.ANTI_ALIAS_FLAG)
-              private val tp = Paint(Paint.ANTI_ALIAS_FLAG)
-              private val xp = Paint(Paint.ANTI_ALIAS_FLAG)
-              private val fp = Paint()
-              private val rect = RectF()
-              private val path = Path()
-              private val path2 = Path()
-
-              var pkg = ""
-              var title = ""
-              var text = ""
-
-              /** Ouverture : 0 = fermé, 1 = ouvert (peut dépasser 1 avec l'effet ressort) */
-              var open = 0f
-                  set(v) {
-                      field = v
-                      invalidate()
-                  }
-
-              /** Heure (SystemClock.uptimeMillis) à laquelle le défilement démarre ; 0 = pas encore */
-              var scrollT0 = 0L
-              var onTap: (() -> Unit)? = null
-              var onSwipeUp: (() -> Unit)? = null
-
-              // mise en page calculée par prepare()
-              private var textL = 0f
-              private var textR = 0f
-              private var avail = 1f
-              private var rows = 0
-              private var combined = false
-              private val rP = arrayOfNulls<Paint>(2)
-              private val rS = arrayOf("", "")
-              private val rW = FloatArray(2)
-              private var wT = 0f
-              private var gT = 0f
-              private var animNeed = false
-              private var maxOff = 0f
-              private var gradKey = 0L
-              private var gradL: LinearGradient? = null
-              private var gradR: LinearGradient? = null
-              private var swiped = false
-
-              private val gd = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-                  override fun onDown(e: MotionEvent): Boolean {
-                      swiped = false
-                      return true
-                  }
-
-                  override fun onSingleTapUp(e: MotionEvent): Boolean {
-                      onTap?.invoke()
-                      return true
-                  }
-
-                  override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                      if (vy < -600f && Store.cfg.drSwipe && !swiped) {
-                          swiped = true
-                          onSwipeUp?.invoke()
-                          return true
-                      }
-                      return false
-                  }
-
-                  override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
-                      if (e1 != null && e1.y - e2.y > 36f * d && Store.cfg.drSwipe && !swiped) {
-                          swiped = true
-                          onSwipeUp?.invoke()
-                          return true
-                      }
-                      return false
-                  }
-              })
-
-              override fun onTouchEvent(e: MotionEvent): Boolean = gd.onTouchEvent(e)
-
-              /** Mesure les textes avec les réglages actuels (à appeler après chaque changement de texte ou de réglage) */
-              fun prepare() {
-                  val c = Store.cfg
-                  val w = c.drW * d
-                  val pad = 14f * d
-                  val ic = if (c.drIcon) c.drIconSize * d else 0f
-                  textL = pad + (if (ic > 0f) ic + 10f * d else 0f)
-                  textR = w - pad
-                  avail = maxOf(1f, textR - textL)
-                  tp.textSize = c.drTitleSize * d
-                  tp.typeface = Typeface.DEFAULT_BOLD
-                  xp.textSize = c.drTextSize * d
-                  xp.typeface = Typeface.DEFAULT
-                  combined = c.drLayout == 1
-                  rows = 0
-                  if (combined) {
-                      wT = if (title.isEmpty()) 0f else tp.measureText(title)
-                      val wx = if (text.isEmpty()) 0f else xp.measureText(text)
-                      gT = if (title.isNotEmpty() && text.isNotEmpty()) 8f * d else 0f
-                      rW[0] = wT + gT + wx
-                      rows = 1
-                  } else {
-                      if (title.isNotEmpty()) {
-                          rP[rows] = tp
-                          rS[rows] = title
-                          rW[rows] = tp.measureText(title)
-                          rows++
-                      }
-                      if (text.isNotEmpty()) {
-                          rP[rows] = xp
-                          rS[rows] = text
-                          rW[rows] = xp.measureText(text)
-                          rows++
-                      }
-                  }
-                  invalidate()
-              }
-
-              private fun speed(): Float = maxOf(5, Store.cfg.drSpeed).toFloat() * d / 1000f
-
-              /** Décalage (px) d'une ligne de largeur cw, el ms après le départ du défilement */
-              private fun offset(cw: Float, el: Long): Float {
-                  val c = Store.cfg
-                  if (cw <= avail) return 0f
-                  val sp = speed()
-                  val e = if (el < 0L) 0f else el.toFloat()
-                  val over = cw - avail
-                  when (c.drMode) {
-                      0 -> return (e * sp) % (cw + c.drScrollGap * d)
-                      1 -> {
-                          val dur = over / sp
-                          val pause = c.drDelay.toFloat()
-                          val cyc = 2f * (dur + pause)
-                          val t = e % cyc
-                          return when {
-                              t < dur -> t * sp
-                              t < dur + pause -> over
-                              t < 2f * dur + pause -> over - (t - dur - pause) * sp
-                              else -> 0f
-                          }
-                      }
-                  }
-                  return minOf(over, e * sp)
-              }
-
-              /** Temps (ms) qu'il faut pour lire le texte en entier une fois, pause de départ comprise ; 0 si rien ne défile */
-              fun scrollMs(): Long {
-                  val c = Store.cfg
-                  if (!c.drScroll) return 0L
-                  val sp = speed()
-                  var best = 0f
-                  for (i in 0 until rows) {
-                      val cw = rW[i]
-                      if (cw <= avail) continue
-                      val over = cw - avail
-                      val t = when (c.drMode) {
-                          0 -> (cw + c.drScrollGap * d) / sp
-                          1 -> 2f * (over / sp) + c.drDelay
-                          else -> over / sp + 600f
-                      }
-                      if (t > best) best = t
-                  }
-                  return if (best > 0f) (c.drDelay + best).toLong() else 0L
-              }
-
-              private fun drawSeg(canvas: Canvas, i: Int, x: Float, y: Float) {
-                  if (combined) {
-                      if (title.isNotEmpty()) canvas.drawText(title, x, y, tp)
-                      if (text.isNotEmpty()) canvas.drawText(text, x + wT + gT, y, xp)
-                  } else {
-                      canvas.drawText(rS[i], x, y, rP[i] ?: xp)
-                  }
-              }
-
-              private fun drawRow(canvas: Canvas, i: Int, y: Float, el: Long) {
-                  val c = Store.cfg
-                  val cw = rW[i]
-                  val over = cw > avail + 0.5f
-                  canvas.save()
-                  canvas.clipRect(textL, -100000f, textR, 100000f)
-                  if (over && c.drScroll) {
-                      animNeed = true
-                      val off = offset(cw, el)
-                      if (off > maxOff) maxOff = off
-                      val x0 = textL - off
-                      drawSeg(canvas, i, x0, y)
-                      if (c.drMode == 0) drawSeg(canvas, i, x0 + cw + c.drScrollGap * d, y)
-                  } else if (over && !combined) {
-                      val p = rP[i] ?: xp
-                      val s = rS[i]
-                      val k = p.breakText(s, true, maxOf(1f, avail - p.measureText("…")), null)
-                      canvas.drawText(s.substring(0, k) + "…", textL, y, p)
-                  } else {
-                      drawSeg(canvas, i, textL, y)
-                  }
-                  canvas.restore()
-              }
-
-              override fun onDraw(canvas: Canvas) {
-                  val c = Store.cfg
-                  val w = c.drW * d
-                  val h = c.drH * d
-                  val p = open
-                  val unfold = c.drStyle == 1
-                  val top = if (unfold) 0f else -(1f - p) * h
-                  val hh = if (unfold) h * p.coerceIn(0f, 1f) else h
-                  if (hh < 1f) return
-                  val bw = if (c.drBorder) c.drBorderW * d else 0f
-                  rect.set(bw / 2f, top + bw / 2f, w - bw / 2f, top + hh - bw / 2f)
-                  val rad = minOf(c.drRadius * d, h / 2f)
-                  bg.style = Paint.Style.FILL
-                  bg.color = c.drFill
-                  canvas.drawRoundRect(rect, rad, rad, bg)
-                  if (bw > 0f) {
-                      bg.style = Paint.Style.STROKE
-                      bg.strokeWidth = bw
-                      bg.color = c.drBorderColor
-                      canvas.drawRoundRect(rect, rad, rad, bg)
-                  }
-                  val ca = if (unfold) ((p - 0.35f) / 0.65f).coerceIn(0f, 1f) else 1f
-                  if (ca <= 0f) return
-
-                  canvas.save()
-                  path.reset()
-                  path.addRoundRect(rect, rad, rad, Path.Direction.CW)
-                  canvas.clipPath(path)
-                  val yMid = top + h / 2f
-
-                  // icône de l'appli
-                  val ic = if (c.drIcon) c.drIconSize * d else 0f
-                  if (ic > 0f) {
-                      val dr = iconOf(pkg)
-                      if (dr != null) {
-                          val ix = 14f * d
-                          val iy = yMid - ic / 2f
-                          canvas.save()
-                          if (c.drIconRound) {
-                              path2.reset()
-                              path2.addCircle(ix + ic / 2f, yMid, ic / 2f, Path.Direction.CW)
-                              canvas.clipPath(path2)
-                          }
-                          dr.setBounds(ix.toInt(), iy.toInt(), (ix + ic).toInt(), (iy + ic).toInt())
-                          dr.alpha = (ca * 255f).toInt()
-                          dr.draw(canvas)
-                          dr.alpha = 255
-                          canvas.restore()
-                      }
-                  }
-
-                  // textes
-                  tp.color = c.drTitleColor
-                  tp.alpha = (Color.alpha(c.drTitleColor) * ca).toInt()
-                  xp.color = c.drTextColor
-                  xp.alpha = (Color.alpha(c.drTextColor) * ca).toInt()
-                  animNeed = false
-                  maxOff = 0f
-                  val el = if (scrollT0 == 0L) -1L else SystemClock.uptimeMillis() - scrollT0
-                  if (rows > 0) {
-                      val gap = 2f * d
-                      var total = gap * (rows - 1)
-                      for (i in 0 until rows) {
-                          val pp = if (combined) xp else (rP[i] ?: xp)
-                          total += pp.descent() - pp.ascent()
-                      }
-                      var y0 = yMid - total / 2f
-                      for (i in 0 until rows) {
-                          val pp = if (combined) xp else (rP[i] ?: xp)
-                          drawRow(canvas, i, y0 - pp.ascent(), el)
-                          y0 += pp.descent() - pp.ascent() + gap
-                      }
-                  }
-
-                  // fondu sur les bords de la zone de texte pendant le défilement
-                  if (animNeed && c.drFade) {
-                      val fw = 16f * d
-                      val key = c.drFill.toLong() * 31L + textL.toLong() * 7L + textR.toLong()
-                      if (key != gradKey || gradL == null) {
-                          gradKey = key
-                          val clear = c.drFill and 0x00FFFFFF
-                          gradL = LinearGradient(textL, 0f, textL + fw, 0f, c.drFill, clear, Shader.TileMode.CLAMP)
-                          gradR = LinearGradient(textR - fw, 0f, textR, 0f, clear, c.drFill, Shader.TileMode.CLAMP)
-                      }
-                      fp.shader = gradR
-                      canvas.drawRect(textR - fw, top, textR, top + h, fp)
-                      if (maxOff > 1f) {
-                          fp.shader = gradL
-                          canvas.drawRect(textL, top, textL + fw, top + h, fp)
-                      }
-                      fp.shader = null
-                  }
-                  canvas.restore()
-                  if (animNeed) postInvalidateOnAnimation()
-              }
-          }
-
-          KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
           cat > app/src/main/java/com/example/island/ColorWheelView.kt <<'KOTLIN_EOF'
           package com.example.island
