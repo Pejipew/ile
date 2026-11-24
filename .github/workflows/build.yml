@@ -3751,6 +3751,55 @@ jobs:
 
               private fun notifN(m: Mod): Int = notifTo(m) - notifFrom(m)
 
+              /** Sonnerie / vibreur / silence : icônes dessinées (clochette, téléphone qui vibre, clochette barrée) tant qu'aucun emoji n'est choisi pour l'état */
+              private fun ringerVec(m: Mod, v: ModuleValue): Boolean =
+                  m.kind == Kind.RINGER && m.autoIcon && m.stateIcon(v.state).isEmpty()
+
+              private fun ringerSize(m: Mod, s: Float): Float = m.textSize * (Store.cfg.fontScale / 100f) * d * s * 1.2f
+
+              private fun drawRinger(canvas: Canvas, st: String, x: Float, cy: Float, u: Float, color: Int) {
+                  val cx = x + u / 2f
+                  lp.maskFilter = null
+                  lp.shader = null
+                  lp.strokeCap = Paint.Cap.ROUND
+                  if (st == "vibrate") {
+                      // téléphone entouré d'ondes de chaque côté
+                      lp.style = Paint.Style.STROKE
+                      lp.strokeWidth = u * 0.1f
+                      lp.color = color
+                      rect.set(cx - u * 0.16f, cy - u * 0.4f, cx + u * 0.16f, cy + u * 0.4f)
+                      canvas.drawRoundRect(rect, u * 0.07f, u * 0.07f, lp)
+                      for (k in 1..2) {
+                          val r = u * (0.19f + 0.14f * k)
+                          rect.set(cx - r, cy - r, cx + r, cy + r)
+                          canvas.drawArc(rect, -35f, 70f, false, lp)
+                          canvas.drawArc(rect, 145f, 70f, false, lp)
+                      }
+                  } else {
+                      // clochette ; en silence elle est atténuée et barrée
+                      val silent = st == "silent"
+                      ledPath.reset()
+                      ledPath.moveTo(cx - u * 0.4f, cy + u * 0.26f)
+                      ledPath.cubicTo(cx - u * 0.25f, cy + u * 0.15f, cx - u * 0.3f, cy - u * 0.35f, cx, cy - u * 0.35f)
+                      ledPath.cubicTo(cx + u * 0.3f, cy - u * 0.35f, cx + u * 0.25f, cy + u * 0.15f, cx + u * 0.4f, cy + u * 0.26f)
+                      ledPath.close()
+                      lp.style = Paint.Style.FILL
+                      lp.color = if (silent) (color and 0x00FFFFFF) or (0x99 shl 24) else color
+                      canvas.drawPath(ledPath, lp)
+                      canvas.drawCircle(cx, cy + u * 0.38f, u * 0.1f, lp)
+                      canvas.drawCircle(cx, cy - u * 0.42f, u * 0.06f, lp)
+                      if (silent) {
+                          lp.style = Paint.Style.STROKE
+                          lp.strokeWidth = u * 0.13f
+                          lp.color = color
+                          canvas.drawLine(cx - u * 0.45f, cy - u * 0.45f, cx + u * 0.45f, cy + u * 0.45f, lp)
+                      }
+                  }
+                  lp.style = Paint.Style.FILL
+                  lp.strokeCap = Paint.Cap.BUTT
+                  lp.alpha = 255
+              }
+
               private fun measure(m: Mod, s: Float): Float {
                   val v = vals[m.id] ?: return 0f
                   if (m.kind == Kind.SPACER) return spacerW(m) * d * s
@@ -3769,6 +3818,9 @@ jobs:
                               w += n * (isz + 2f * d * s)
                               parts++
                           }
+                      } else if (ringerVec(m, v)) {
+                          w += ringerSize(m, s)
+                          parts++
                       } else {
                           setText(m, s, true)
                           w += tp.measureText(iconOf(m, v))
@@ -3817,6 +3869,15 @@ jobs:
                               }
                               first = false
                           }
+                      } else if (ringerVec(m, v)) {
+                          if (!first) x += g
+                          val u = ringerSize(m, s)
+                          if (fxBegin(canvas, x, x + u / 2f, cy)) {
+                              drawRinger(canvas, v.state, x, cy, u, v.led)
+                              fxEnd(canvas)
+                          }
+                          x += u
+                          first = false
                       } else {
                           if (!first) x += g
                           setText(m, s, true)
