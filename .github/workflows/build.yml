@@ -201,13 +201,95 @@ jobs:
               SPACER("Espace vide", "↔️", listOf("Petit", "Moyen", "Grand", "Énorme"), dIcon = false, dText = false)
           }
 
+          /** États possibles de chaque info : on peut choisir une icône par état (mode « icône automatique ») */
+          object StateIcons {
+              /** def = icône d'origine de cet état, ou null si l'info garde alors son icône de base */
+              class St(val key: String, val label: String, val def: String?)
+
+              private fun lvls(prefix: String, ic: String?, names: List<String>): List<St> =
+                  List(5) { St(prefix + it, names[it], ic) }
+
+              private val sigNames = listOf("Signal 0 (aucun)", "Signal 1 (très faible)", "Signal 2 (moyen)", "Signal 3 (bon)", "Signal 4 (excellent)")
+              private val wifiNames = listOf("Connecté, signal 0 (aucun)", "Connecté, signal 1 (très faible)", "Connecté, signal 2 (moyen)", "Connecté, signal 3 (bon)", "Connecté, signal 4 (excellent)")
+
+              fun states(kind: Kind): List<St> = when (kind) {
+                  Kind.BATTERY -> listOf(
+                      St("normal", "Sur batterie", null),
+                      St("plugged", "En charge", "⚡"),
+                      St("low", "Très faible (10 % ou moins)", null)
+                  )
+                  Kind.CHARGE_WATTS -> listOf(St("plugged", "En charge", "⚡"), St("unplugged", "Débranché", "⚡"))
+                  Kind.CHARGE_STATE -> listOf(
+                      St("unplugged", "Débranché", null),
+                      St("charging", "En charge", null),
+                      St("fast", "Charge rapide", null),
+                      St("full", "Pleine", null)
+                  )
+                  Kind.CHARGE_TIME -> listOf(St("active", "Temps estimé disponible", null), St("none", "Pas de charge", null))
+                  Kind.BATT_TEMP -> listOf(
+                      St("ok", "Normale (moins de 38 °C)", null),
+                      St("warm", "Chaude (38 à 42 °C)", null),
+                      St("hot", "Très chaude (42 °C et plus)", null)
+                  )
+                  Kind.NETWORK -> listOf(St("offline", "Hors ligne (mode avion)", "📵")) + lvls("lvl", "📶", sigNames)
+                  Kind.SIGNAL -> lvls("lvl", "📡", sigNames)
+                  Kind.WIFI_STATE -> listOf(
+                      St("off", "Wi‑Fi éteint", null),
+                      St("idle", "Allumé, non connecté", null)
+                  ) + lvls("lvl", null, wifiNames)
+                  Kind.BLUETOOTH, Kind.AIRPLANE, Kind.DND, Kind.TORCH, Kind.LOCATION -> listOf(
+                      St("on", "Activé", null),
+                      St("off", "Désactivé", null)
+                  )
+                  Kind.RINGER -> listOf(
+                      St("normal", "Sonnerie", "🔔"),
+                      St("vibrate", "Vibreur", "📳"),
+                      St("silent", "Silence", "🔕")
+                  )
+                  Kind.VOLUME -> listOf(St("normal", "Volume normal", null), St("mute", "Muet (0 %)", "🔇"))
+                  Kind.WEATHER -> listOf(
+                      St("clear_day", "Ciel dégagé (jour)", "☀️"),
+                      St("partly", "Éclaircies (jour)", "🌤️"),
+                      St("clear_night", "Nuit dégagée ou éclaircies", "🌙"),
+                      St("cloudy", "Nuageux", "⛅"),
+                      St("overcast", "Couvert", "☁️"),
+                      St("fog", "Brouillard", "🌫️"),
+                      St("drizzle", "Bruine", "🌦️"),
+                      St("rain", "Pluie et averses", "🌧️"),
+                      St("snow", "Neige", "❄️"),
+                      St("storm", "Orage", "⛈️"),
+                      St("unknown", "Inconnue / pas encore chargée", "🌡️")
+                  )
+                  Kind.SPEED -> listOf(St("active", "Débit en cours", null), St("none", "Pas de débit", null))
+                  Kind.NOTIF_COUNT -> listOf(St("active", "Des notifications", null), St("none", "Aucune notification", null))
+                  Kind.ALARM -> listOf(St("active", "Réveil programmé", null), St("none", "Aucun réveil", null))
+                  Kind.MEDIA -> listOf(St("active", "Musique en lecture", null), St("none", "Rien en lecture", null))
+                  else -> emptyList()
+              }
+
+              /** Clé d'état de la météo selon le code de condition et le moment de la journée */
+              fun weatherKey(code: Int, night: Boolean): String = when (code) {
+                  0 -> if (night) "clear_night" else "clear_day"
+                  1 -> if (night) "clear_night" else "partly"
+                  2 -> "cloudy"
+                  3 -> "overcast"
+                  45, 48 -> "fog"
+                  51, 53, 55, 56, 57 -> "drizzle"
+                  61, 63, 65, 66, 67, 80, 81, 82 -> "rain"
+                  71, 73, 75, 77, 85, 86 -> "snow"
+                  95, 96, 99 -> "storm"
+                  else -> "unknown"
+              }
+          }
           object Emojis {
               val list = listOf(
                   "🔋", "⚡", "🔌", "📶", "📡", "📵", "🔔", "🔕", "📳", "🕐", "⏰", "📅",
                   "☀️", "🌤️", "⛅", "☁️", "🌧️", "⛈️", "❄️", "🌙", "💨", "💧", "🌡️", "🔦",
                   "🔵", "✈️", "🎵", "🎧", "📍", "💾", "🧠", "🚀", "⬇️", "⬆️", "🔆", "🔊",
                   "⭐", "✨", "❤️", "🔥", "💎", "🎮", "👀", "😀", "🌈", "👻", "🦄", "🍀",
-                  "●", "◆", "▲", "✚", "♪", "☾", "✦", "➤"
+                  "●", "◆", "▲", "✚", "♪", "☾", "✦", "➤",
+                  "🪫", "🔇", "📴", "🌫️", "🌦️", "🔒", "🔓", "⛔", "✅", "❌", "⚠️", "💤",
+                  "🟢", "🟡", "🟠", "🔴", "⚪", "⚫"
               )
           }
 
@@ -229,6 +311,9 @@ jobs:
           ) {
               /** Niveau de 0 à 1 (signal, batterie, RAM…) ou -1 si l'info n'a pas de niveau */
               var frac: Float = -1f
+
+              /** État courant de l'info (clé de StateIcons), pour l'icône choisie par état */
+              var state: String = ""
           }
 
           /** Réglages d'une info (stockés en JSON) */
@@ -414,6 +499,22 @@ jobs:
                       p("zone", v)
                       p("left", v <= 1)
                   }
+
+              /** Icône choisie pour un état donné (vide = pas de choix, on garde l'icône d'origine) */
+              fun stateIcon(key: String): String {
+                  val o = j.optJSONObject("sic") ?: return ""
+                  return o.optString(key, "")
+              }
+
+              fun setStateIcon(key: String, v: String) {
+                  var o = j.optJSONObject("sic")
+                  if (o == null) {
+                      o = JSONObject()
+                      j.put("sic", o)
+                  }
+                  if (v.isEmpty()) o.remove(key) else o.put(key, v)
+                  Store.rev++
+              }
 
               companion object {
                   fun newId(): String = UUID.randomUUID().toString().take(8)
@@ -1114,6 +1215,13 @@ jobs:
               get() = gb("mksm", false)
               set(v) {
                   p("mksm", v)
+              }
+
+          /** Le masque prend la place de la barre en mode paysage, et la barre revient en portrait */
+          var maskLand: Boolean
+              get() = gb("mkld", true)
+              set(v) {
+                  p("mkld", v)
               }
 
           /** Afficher aussi le masque quand la barre est cachée (verrouillage, AOD, paysage) */
@@ -2381,6 +2489,11 @@ jobs:
               fun compute(m: Mod): ModuleValue {
                   return try {
                       val v = compute0(m)
+                      v.state = try {
+                          stateFor(m, v)
+                      } catch (e: Exception) {
+                          ""
+                      }
                       v.frac = try {
                           fracFor(m, v)
                       } catch (e: Exception) {
@@ -2392,6 +2505,43 @@ jobs:
                   }
               }
 
+          /** État courant d'une info, pour l'icône choisie par état (clés de StateIcons) */
+          private fun stateFor(m: Mod, v: ModuleValue): String = when (m.kind) {
+              Kind.BATTERY -> if (v.icon != null) "plugged" else if (v.blink) "low" else "normal"
+              Kind.CHARGE_WATTS -> if (v.active) "plugged" else "unplugged"
+              Kind.CHARGE_STATE -> when (v.text) {
+                  "Débranché" -> "unplugged"
+                  "Pleine" -> "full"
+                  "Rapide" -> "fast"
+                  else -> "charging"
+              }
+              Kind.CHARGE_TIME -> if (v.active) "active" else "none"
+              Kind.BATT_TEMP -> {
+                  val t = batt().tempC
+                  if (t >= 42f) "hot" else if (t >= 38f) "warm" else "ok"
+              }
+              Kind.NETWORK -> if (v.icon == "📵") "offline" else "lvl" + cellLevel().coerceIn(0, 4)
+              Kind.SIGNAL -> "lvl" + cellLevel().coerceIn(0, 4)
+              Kind.WIFI_STATE -> if (!v.active) "off" else if (!wifiConnectedNow()) "idle" else "lvl" + wifiLevelNow().coerceIn(0, 4)
+              Kind.BLUETOOTH, Kind.AIRPLANE, Kind.DND, Kind.TORCH, Kind.LOCATION -> if (v.active) "on" else "off"
+              Kind.RINGER -> when (v.icon) {
+                  "📳" -> "vibrate"
+                  "🔕" -> "silent"
+                  else -> "normal"
+              }
+              Kind.VOLUME -> if (v.icon != null) "mute" else "normal"
+              Kind.WEATHER -> {
+                  val w = Weather.data
+                  if (w == null) {
+                      "unknown"
+                  } else {
+                      val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                      StateIcons.weatherKey(w.code, hour < 7 || hour >= 21)
+                  }
+              }
+              Kind.SPEED, Kind.NOTIF_COUNT, Kind.ALARM, Kind.MEDIA -> if (v.active) "active" else "none"
+              else -> ""
+          }
               /** Niveau de 0 à 1 d'une info (pour les LED « niveau » et les fines barres), -1 si elle n'en a pas */
               private fun fracFor(m: Mod, v: ModuleValue): Float = when (m.kind) {
                   Kind.BATTERY -> batt().pct / 100f
@@ -3554,8 +3704,13 @@ jobs:
                   return faces.getOrPut(key) { Typeface.create(name, if (m.bold) Typeface.BOLD else Typeface.NORMAL) }
               }
 
-              private fun iconOf(m: Mod, v: ModuleValue): String =
-                  if (m.autoIcon && v.icon != null) v.icon else m.icon
+              /** Icône affichée : en mode automatique, celle choisie pour l'état, sinon l'icône d'origine de l'état, sinon l'icône de base */
+              private fun iconOf(m: Mod, v: ModuleValue): String {
+                  if (!m.autoIcon) return m.icon
+                  val chosen = m.stateIcon(v.state)
+                  if (chosen.isNotEmpty()) return chosen
+                  return v.icon ?: m.icon
+              }
 
               private fun textOf(m: Mod, v: ModuleValue): String =
                   if (v.text.isEmpty() && m.kind != Kind.CUSTOM) "" else m.label + v.text
@@ -5740,6 +5895,7 @@ jobs:
               private var fgPkg: String = ""
               private var lastOff = false
               private var lastMaskShow = true
+              private var lastLand = false
               private var haloAnim: ValueAnimator? = null
 
               /** Choix fait d'un appui sur l'encoche : 1 masque forcé, 0 masque enlevé, -1 automatique */
@@ -6120,11 +6276,19 @@ jobs:
                   val land = svc.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
                   val hidden = (c.hideAod && aod) || (c.hideLock && locked) || (c.hideLand && land)
 
+                  // rotation : le choix fait d'un appui sur l'encoche redevient automatique
+                  if (land != lastLand) {
+                      lastLand = land
+                      if (c.maskLand) manual = -1
+                  }
+                  // masque en paysage : actif tant que l'écran est en paysage, désactivé dès le retour en portrait
+                  val inLand = c.maskOn && c.maskLand && land && !aod && !locked
+
                   // le masque remplace la barre dans les applis choisies (et pendant le réglage du masque)
                   // le choix fait d'un appui sur l'encoche est remis en automatique au verrouillage et au changement d'appli
                   if (aod || locked) manual = -1
                   val inApp = c.maskOn && !aod && !locked && fgPkg.isNotEmpty() && c.maskApps.contains(fgPkg)
-                  val replace = Store.maskEdit || (manual == 1 && !hidden) || (inApp && manual != 0)
+                  val replace = Store.maskEdit || (manual == 1 && !hidden) || ((inApp || inLand) && manual != 0)
                   val maskShow = replace || (c.maskOn && c.maskWhenHidden && hidden && manual != 0)
                   val off = hidden || replace
 
@@ -6752,6 +6916,40 @@ jobs:
 
           /** Fenêtre de réglage d'une info : LED / icône / texte, couleurs, tailles… tout en direct */
           object ModDialog {
+              /** Petite fenêtre pour choisir l'icône d'un état : liste d'emojis, saisie libre, ou retour à l'icône d'origine */
+              private fun pickStateIcon(ctx: Context, ui: Ui, title: String, current: String, onPick: (String) -> Unit) {
+                  val col = ui.vbox()
+                  col.addView(ui.tv(title, 16f, Pal.TXT))
+                  col.addView(ui.hint("Choisis un emoji ou tape le tien :"))
+                  val et = EditText(ctx)
+                  et.setText(current)
+                  et.textSize = 20f
+                  et.setTextColor(Pal.TXT)
+                  et.setSingleLine(true)
+                  col.addView(et)
+                  var row: LinearLayout? = null
+                  for ((i, e) in Emojis.list.withIndex()) {
+                      if (i % 7 == 0) {
+                          row = LinearLayout(ctx)
+                          col.addView(row)
+                      }
+                      val t = TextView(ctx)
+                      t.text = e
+                      t.textSize = 24f
+                      t.setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(6))
+                      t.setOnClickListener { et.setText(e) }
+                      row?.addView(t)
+                  }
+                  val sv = ScrollView(ctx)
+                  sv.addView(col)
+                  AlertDialog.Builder(ctx, android.R.style.Theme_Material_Dialog_Alert)
+                      .setView(sv)
+                      .setPositiveButton("OK") { _, _ -> onPick(et.text.toString().trim()) }
+                      .setNeutralButton("Par défaut") { _, _ -> onPick("") }
+                      .setNegativeButton("Annuler", null)
+                      .show()
+              }
+
               fun show(
                   ctx: Context,
                   m: Mod,
@@ -6794,6 +6992,32 @@ jobs:
 
                   b.addView(ui.section("Icône"))
                   b.addView(ui.toggle("Icône automatique selon l'état", { m.autoIcon }, { m.autoIcon = it }))
+                  val sts = StateIcons.states(m.kind)
+                  if (sts.isNotEmpty()) {
+                      b.addView(ui.hint("Icône de chaque état (utilisée quand l'icône automatique est activée). Appuie sur une icône pour la changer :"))
+                      for (st in sts) {
+                          val srow = ui.hrow()
+                          srow.setPadding(0, ui.dp(4), 0, ui.dp(4))
+                          val btn = ui.tv("", 24f, Pal.TXT)
+                          btn.setPadding(ui.dp(14), ui.dp(4), ui.dp(14), ui.dp(4))
+                          btn.background = ui.round(Pal.CARD, 12)
+                          val shown = {
+                              val o = m.stateIcon(st.key)
+                              btn.text = if (o.isNotEmpty()) o else (st.def ?: m.icon)
+                          }
+                          shown()
+                          btn.setOnClickListener {
+                              pickStateIcon(ctx, ui, st.label, m.stateIcon(st.key)) { choice ->
+                                  m.setStateIcon(st.key, choice)
+                                  shown()
+                                  onChange()
+                              }
+                          }
+                          srow.addView(ui.tv(st.label, 14f, Pal.TXT), LinearLayout.LayoutParams(0, ui.WRAP, 1f))
+                          srow.addView(btn)
+                          b.addView(srow)
+                      }
+                  }
                   val et = EditText(ctx)
                   et.setText(m.icon)
                   et.textSize = 20f
@@ -7241,6 +7465,7 @@ jobs:
                           rebuild()
                       }
                   })
+                  b.addView(ui.toggle("Masque en mode paysage (la barre revient en portrait)", { c.maskLand }, { c.maskLand = it }))
                   b.addView(ui.toggle("Aussi quand la barre est cachée (verrouillage, AOD, paysage)", { c.maskWhenHidden }, { c.maskWhenHidden = it }))
                   b.addView(ui.slider("Durée de la transition barre ↔ masque (0 = instantané)", 0, 1000, { c.maskFade }, { c.maskFade = it }, " ms"))
                   b.addView(ui.toggle("Transformer la forme pendant la transition (morphing)", { c.maskMorph }, { c.maskMorph = it }))
@@ -8540,8 +8765,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 38
-                  versionName = "3.7.0"
+                  versionCode = 39
+                  versionName = "3.8.0"
               }
 
               compileOptions {
