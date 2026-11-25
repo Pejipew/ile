@@ -47,11 +47,11 @@ jobs:
               val GRAY = 0xFF6B6B7B.toInt()
               val WHITE = 0xFFFFFFFF.toInt()
 
-              /** Couleur d'origine du niveau de volume i (0 à 16) : gris à 0, puis du bleu au rouge */
+              /** Couleur d'origine du niveau de volume i (0 à 15) : rouge à 0 et 1, puis orange, jaune, jusqu'au vert à 15 */
               fun volDef(i: Int): Int {
-                  if (i <= 0) return GRAY
-                  val stops = intArrayOf(BLUE, CYAN, GREEN, YELLOW, ORANGE, RED)
-                  val t = ((i - 1).coerceAtMost(15) / 15f) * (stops.size - 1)
+                  if (i <= 1) return RED
+                  val stops = intArrayOf(RED, ORANGE, YELLOW, GREEN)
+                  val t = ((i - 1).coerceAtMost(14) / 14f) * (stops.size - 1)
                   val k = t.toInt().coerceAtMost(stops.size - 2)
                   val f = t - k
                   val a = stops[k]
@@ -135,8 +135,8 @@ jobs:
                       PalEntry("dnd", "Ne pas déranger", Pal.PURPLE),
                       PalEntry("torch", "Lampe torche", Pal.YELLOW)
                   )),
-                  PalGroup("🔊 Volume : une couleur par niveau (0 à 16)", "La LED de l'info Volume prend la couleur du niveau actuel. Le volume est ramené sur 16 niveaux, quel que soit le nombre de crans de ton téléphone (0 = muet).",
-                      List(17) { PalEntry("vol" + it, if (it == 0) "Niveau 0 (muet)" else "Niveau " + it, Pal.volDef(it)) }),
+                  PalGroup("🔊 Volume : une couleur par niveau (0 à 15)", "L'icône haut-parleur et la LED de l'info Volume prennent la couleur du niveau actuel. Le volume est ramené sur 15 niveaux, quel que soit le nombre de crans de ton téléphone (0 = muet, haut-parleur barré).",
+                      List(16) { PalEntry("vsp" + it, if (it == 0) "Niveau 0 (muet, barré)" else "Niveau " + it, Pal.volDef(it)) }),
                   PalGroup("🎨 Autres infos", "", listOf(
                       PalEntry("time", "Heure", Pal.CYAN),
                       PalEntry("date", "Date", Pal.PURPLE),
@@ -1143,6 +1143,20 @@ jobs:
                   get() = gi("mbna", 50)
                   set(v) {
                       p("mbna", v)
+                  }
+
+              /** Son mécanique quand le masque sort ou rentre */
+              var maskSnd: Boolean
+                  get() = gb("msnd", true)
+                  set(v) {
+                      p("msnd", v)
+                  }
+
+              /** Volume du son du masque, de 10 à 100 */
+              var maskSndVol: Int
+                  get() = gi("msvl", 70).coerceIn(10, 100)
+                  set(v) {
+                      p("msvl", v)
                   }
 
               /** Forme libre à points pour la barre de statut (sinon rectangle) */
@@ -2180,8 +2194,8 @@ jobs:
                           val mx = am.getStreamMaxVolume(st).coerceAtLeast(1)
                           val vol = am.getStreamVolume(st)
                           val p = vol * 100 / mx
-                          val lvl = Math.round(vol * 16f / mx).coerceIn(0, 16)
-                          ModuleValue("$p%", true, tc("vol" + lvl, Pal.volDef(lvl)), if (p == 0) "🔇" else null)
+                          val lvl = if (vol <= 0) 0 else Math.round(vol * 15f / mx).coerceIn(1, 15)
+                          ModuleValue("$p%", true, tc("vsp" + lvl, Pal.volDef(lvl)), if (p == 0) "🔇" else null)
                       }
                       Kind.BRIGHTNESS -> {
                           val v = Settings.System.getInt(app.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128) * 100 / 255
@@ -2883,9 +2897,52 @@ jobs:
 
               /** Sonnerie / vibreur / silence : icônes dessinées (clochette, téléphone qui vibre, clochette barrée) tant qu'aucun emoji n'est choisi pour l'état */
               private fun ringerVec(m: Mod, v: ModuleValue): Boolean =
-                  m.kind == Kind.RINGER && m.autoIcon && m.stateIcon(v.state).isEmpty()
+                  (m.kind == Kind.RINGER || m.kind == Kind.VOLUME) && m.autoIcon && m.stateIcon(v.state).isEmpty()
 
               private fun ringerSize(m: Mod, s: Float): Float = m.textSize * (Store.cfg.fontScale / 100f) * d * s * 1.2f
+
+              /** Volume : haut-parleur dessiné, couleur du niveau (0 à 15) ; 0 = barré, puis 1, 2 ou 3 ondes selon le niveau */
+              private fun drawVolume(canvas: Canvas, v: ModuleValue, x: Float, cy: Float, u: Float) {
+                  val lvl = if (v.frac <= 0f) 0 else Math.round(v.frac * 15f).coerceIn(1, 15)
+                  val color = v.led
+                  val x0 = x + u * 0.05f
+                  lp.maskFilter = null
+                  lp.shader = null
+                  lp.strokeCap = Paint.Cap.ROUND
+                  lp.strokeJoin = Paint.Join.ROUND
+                  lp.color = if (lvl == 0) (color and 0x00FFFFFF) or (0xB3 shl 24) else color
+                  ledPath.reset()
+                  ledPath.moveTo(x0, cy - u * 0.17f)
+                  ledPath.lineTo(x0 + u * 0.18f, cy - u * 0.17f)
+                  ledPath.lineTo(x0 + u * 0.46f, cy - u * 0.4f)
+                  ledPath.lineTo(x0 + u * 0.46f, cy + u * 0.4f)
+                  ledPath.lineTo(x0 + u * 0.18f, cy + u * 0.17f)
+                  ledPath.lineTo(x0, cy + u * 0.17f)
+                  ledPath.close()
+                  lp.style = Paint.Style.FILL_AND_STROKE
+                  lp.strokeWidth = u * 0.08f
+                  canvas.drawPath(ledPath, lp)
+                  if (lvl == 0) {
+                      lp.style = Paint.Style.STROKE
+                      lp.strokeWidth = u * 0.12f
+                      lp.color = color
+                      canvas.drawLine(x + u * 0.03f, cy - u * 0.46f, x + u * 0.97f, cy + u * 0.46f, lp)
+                  } else {
+                      val n = (lvl - 1) / 5 + 1
+                      lp.style = Paint.Style.STROKE
+                      lp.strokeWidth = u * 0.09f
+                      val wx = x0 + u * 0.40f
+                      for (k in 0 until n) {
+                          val r = u * (0.19f + 0.15f * k)
+                          rect.set(wx - r, cy - r, wx + r, cy + r)
+                          canvas.drawArc(rect, -40f, 80f, false, lp)
+                      }
+                  }
+                  lp.style = Paint.Style.FILL
+                  lp.strokeCap = Paint.Cap.BUTT
+                  lp.strokeJoin = Paint.Join.MITER
+                  lp.alpha = 255
+              }
 
               private fun drawRinger(canvas: Canvas, st: String, x: Float, cy: Float, u: Float, color: Int) {
                   val cx = x + u / 2f
@@ -2909,14 +2966,17 @@ jobs:
                       // clochette ; en silence elle est atténuée et barrée
                       val silent = st == "silent"
                       ledPath.reset()
-                      ledPath.moveTo(cx - u * 0.4f, cy + u * 0.26f)
-                      ledPath.cubicTo(cx - u * 0.25f, cy + u * 0.15f, cx - u * 0.3f, cy - u * 0.35f, cx, cy - u * 0.35f)
-                      ledPath.cubicTo(cx + u * 0.3f, cy - u * 0.35f, cx + u * 0.25f, cy + u * 0.15f, cx + u * 0.4f, cy + u * 0.26f)
+                      ledPath.moveTo(cx - u * 0.44f, cy + u * 0.27f)
+                      ledPath.cubicTo(cx - u * 0.27f, cy + u * 0.17f, cx - u * 0.34f, cy - u * 0.36f, cx, cy - u * 0.36f)
+                      ledPath.cubicTo(cx + u * 0.34f, cy - u * 0.36f, cx + u * 0.27f, cy + u * 0.17f, cx + u * 0.44f, cy + u * 0.27f)
                       ledPath.close()
-                      lp.style = Paint.Style.FILL
                       lp.color = if (silent) (color and 0x00FFFFFF) or (0x99 shl 24) else color
+                      lp.style = Paint.Style.FILL_AND_STROKE
+                      lp.strokeWidth = u * 0.09f
+                      lp.strokeJoin = Paint.Join.ROUND
                       canvas.drawPath(ledPath, lp)
-                      canvas.drawCircle(cx, cy + u * 0.38f, u * 0.1f, lp)
+                      lp.style = Paint.Style.FILL
+                      canvas.drawCircle(cx, cy + u * 0.4f, u * 0.115f, lp)
                       canvas.drawCircle(cx, cy - u * 0.42f, u * 0.06f, lp)
                       if (silent) {
                           lp.style = Paint.Style.STROKE
@@ -2927,6 +2987,7 @@ jobs:
                   }
                   lp.style = Paint.Style.FILL
                   lp.strokeCap = Paint.Cap.BUTT
+                  lp.strokeJoin = Paint.Join.MITER
                   lp.alpha = 255
               }
 
@@ -3003,7 +3064,7 @@ jobs:
                           if (!first) x += g
                           val u = ringerSize(m, s)
                           if (fxBegin(canvas, x, x + u / 2f, cy)) {
-                              drawRinger(canvas, v.state, x, cy, u, v.led)
+                              if (m.kind == Kind.VOLUME) drawVolume(canvas, v, x, cy, u) else drawRinger(canvas, v.state, x, cy, u, v.led)
                               fxEnd(canvas)
                           }
                           x += u
@@ -4632,6 +4693,113 @@ jobs:
           }
           KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/MaskSound.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.media.AudioAttributes
+          import android.media.AudioFormat
+          import android.media.AudioTrack
+          import android.os.Handler
+          import android.os.Looper
+          import kotlin.math.exp
+          import kotlin.math.min
+          import kotlin.math.sin
+          import kotlin.math.tanh
+
+          /** Sons mécaniques synthétisés (lourde porte de bunker) joués quand le masque sort ou rentre. Aucun fichier audio : tout est calculé */
+          object MaskSound {
+              private const val SR = 22050
+              private val handler = Handler(Looper.getMainLooper())
+              private var opening: ShortArray? = null
+              private var closing: ShortArray? = null
+
+              /** Joue le son d'ouverture (le masque sort) ou de fermeture (le masque rentre), volume de 10 à 100 */
+              fun play(open: Boolean, vol: Int) {
+                  try {
+                      val data = if (open) (opening ?: build(true).also { opening = it }) else (closing ?: build(false).also { closing = it })
+                      val at = AudioTrack.Builder()
+                          .setAudioAttributes(
+                              AudioAttributes.Builder()
+                                  .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                                  .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                  .build()
+                          )
+                          .setAudioFormat(
+                              AudioFormat.Builder()
+                                  .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                                  .setSampleRate(SR)
+                                  .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                                  .build()
+                          )
+                          .setBufferSizeInBytes(data.size * 2)
+                          .setTransferMode(AudioTrack.MODE_STATIC)
+                          .build()
+                      at.write(data, 0, data.size)
+                      at.setVolume((vol / 100f).coerceIn(0f, 1f))
+                      at.play()
+                      handler.postDelayed({
+                          try {
+                              at.stop()
+                              at.release()
+                          } catch (e: Exception) {
+                          }
+                      }, data.size * 1000L / SR + 200L)
+                  } catch (e: Exception) {
+                  }
+              }
+
+              private fun build(open: Boolean): ShortArray {
+                  val dur = if (open) 0.62f else 0.58f
+                  val n = (SR * dur).toInt()
+                  var seed = if (open) 12345 else 54321
+                  fun noise(): Float {
+                      seed = seed * 1103515245 + 12345
+                      return ((seed ushr 16) and 0x7FFF) / 16384f - 1f
+                  }
+                  // coup sec : sinus grave qui retombe + éclat de bruit
+                  fun hit(t: Float, at: Float, amp: Float, f0: Float, decay: Float): Float {
+                      val dt = t - at
+                      if (dt < 0f) return 0f
+                      val body = exp(-dt * decay) * sin(2f * Math.PI.toFloat() * f0 * dt * (1f - 0.35f * min(1f, dt * 6f)))
+                      val click = exp(-dt * 70f) * noise() * 0.6f
+                      return amp * (body + click)
+                  }
+                  val out = ShortArray(n)
+                  var ph = 0f
+                  var ph2 = 0f
+                  var low = 0f
+                  for (i in 0 until n) {
+                      val t = i.toFloat() / SR
+                      val p = i.toFloat() / n
+                      // moteur et chaînes : la hauteur monte à l'ouverture, descend à la fermeture
+                      val f = if (open) 52f + 48f * p else 98f - 46f * p
+                      ph += f / SR
+                      if (ph >= 1f) ph -= 1f
+                      ph2 += f * 1.5f / SR
+                      if (ph2 >= 1f) ph2 -= 1f
+                      val saw = ph * 2f - 1f
+                      val sq = if (ph2 < 0.5f) 1f else -1f
+                      // cliquetis de la chaîne : le son est haché ~24 fois par seconde
+                      val gate = if (((t * 24f) % 1f) < 0.55f) 1f else 0.25f
+                      low += 0.10f * (noise() - low)
+                      val env = min(1f, t / 0.04f) * min(1f, (1f - p) / 0.15f)
+                      var s = (saw * 0.35f + sq * 0.18f + low * 1.6f) * gate * env * 0.6f
+                      if (open) {
+                          s += hit(t, 0f, 0.9f, 150f, 22f)          // verrou qui claque
+                          s += hit(t, dur - 0.14f, 0.55f, 75f, 20f)  // butée en haut
+                      } else {
+                          s += hit(t, 0f, 0.5f, 130f, 26f)           // déclic de départ
+                          s += hit(t, dur - 0.17f, 1.0f, 58f, 15f)   // lourd choc de fermeture
+                      }
+                      val fade = min(1f, (n - i) / (SR * 0.012f))
+                      val v = tanh(s * 1.4f) * fade
+                      out[i] = (v * 30000f).toInt().coerceIn(-32768, 32767).toShort()
+                  }
+                  return out
+              }
+          }
+          KOTLIN_EOF
+
           cat > app/src/main/java/com/example/island/BarController.kt <<'KOTLIN_EOF'
           package com.example.island
 
@@ -4828,8 +4996,10 @@ jobs:
                       fadeTo(halo, false, ms.coerceAtLeast(200L), 0L)
                       fadeTo(mask, true, ms, outMs / 3)
                       handler.postDelayed({ mask.bounceIn(c.maskBounce, c.maskBounceAmp) }, outMs / 3)
+                      if (c.maskSnd) MaskSound.play(true, c.maskSndVol)
                   }, 400L)
                   handler.postDelayed({
+                      if (c.maskSnd) MaskSound.play(false, c.maskSndVol)
                       fadeTo(mask, false, maxOf(ms, 200L), 0L)
                       bar.playFx(true, inMs, 150L)
                       fadeTo(bar, true, maxOf(inMs / 3, 120L), 0L)
@@ -4961,6 +5131,7 @@ jobs:
                   if (off != lastOff || maskShow != lastMaskShow) {
                       val morph = c.maskMorph && ms > 0L
                       // effets de style sur les infos : seulement pour un vrai passage barre <-> masque, chacun avec sa durée
+                      if (c.maskSnd && maskShow != lastMaskShow && !Store.maskEdit) MaskSound.play(maskShow, c.maskSndVol)
                       val real = off != lastOff && maskShow != lastMaskShow
                       val fxOut = c.maskFx != 0 && real
                       val fxIn = c.maskFxIn != 0 && real
@@ -5803,6 +5974,11 @@ jobs:
                   b.addView(ui.chips(null, listOf("Aucun", "Ressort", "Chute", "Gélatine"), { c.maskBounce }, { c.maskBounce = it }) { rebuild() })
                   if (c.maskBounce != 0) {
                       b.addView(ui.slider("Force du rebond", 10, 100, { c.maskBounceAmp }, { c.maskBounceAmp = it }, " %"))
+                  }
+                  b.addView(ui.section("Son du masque (porte mécanique)"))
+                  b.addView(ui.toggle("Jouer un son quand le masque sort et rentre", { c.maskSnd }, { c.maskSnd = it }) { rebuild() })
+                  if (c.maskSnd) {
+                      b.addView(ui.slider("Volume du son", 10, 100, { c.maskSndVol }, { c.maskSndVol = it }, " %"))
                   }
                   b.addView(ui.buttons(listOf("▶ Tester la transition")) { IslandAccessibilityService.instance?.testTransition() })
 
