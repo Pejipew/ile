@@ -1429,6 +1429,39 @@ jobs:
           }
           KOTLIN_EOF
           mkdir -p app/src/main/java/com/example/island
+          cat > app/src/main/java/com/example/island/Rot.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.graphics.Canvas
+
+          /** Aides de rotation d'écran : tout est dessiné/placé comme en portrait puis converti */
+          object Rot {
+              /** Angle pour redresser un élément dessiné dans le repère portrait (rot = 0 à 3) */
+              fun upright(rot: Int): Float = when (rot) {
+                  1 -> 90f
+                  2 -> 180f
+                  3 -> -90f
+                  else -> 0f
+              }
+
+              /** Transforme le canvas pour dessiner dans le repère portrait (lw x lh) */
+              fun apply(canvas: Canvas, rot: Int, lw: Float, lh: Float) {
+                  when (rot) {
+                      1 -> { canvas.translate(0f, lw); canvas.rotate(-90f) }
+                      2 -> { canvas.translate(lw, lh); canvas.rotate(180f) }
+                      3 -> { canvas.translate(lh, 0f); canvas.rotate(90f) }
+                  }
+              }
+
+              /** Convertit un rectangle portrait (pw x ph) en [x, y, largeur, hauteur] pour la rotation donnée */
+              fun rect(rot: Int, pw: Int, ph: Int, x: Int, y: Int, w: Int, h: Int): IntArray = when (rot) {
+                  1 -> intArrayOf(y, pw - x - w, h, w)
+                  2 -> intArrayOf(pw - x - w, ph - y - h, w, h)
+                  3 -> intArrayOf(ph - y - h, x, h, w)
+                  else -> intArrayOf(x, y, w, h)
+              }
+          }
+          KOTLIN_EOF
           cat > app/src/main/java/com/example/island/Weather.kt <<'KOTLIN_EOF'
           package com.example.island
 
