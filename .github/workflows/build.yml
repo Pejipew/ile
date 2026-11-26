@@ -1,5 +1,5 @@
 name: Build APK
-run-name: Build APK 3.9.0 (${{ github.sha }})
+run-name: Build APK 3.10.0 (${{ github.sha }})
 
 on:
   push:
@@ -4951,6 +4951,16 @@ jobs:
               private val halo = HaloView(svc, engine)
               private val notch = View(svc)
               private val mask = MaskView(svc)
+              private val ticker = TickerView(svc)
+              private var tickerLp: WindowManager.LayoutParams? = null
+              private var tickerText: String? = null
+              private var tickerAllowed = true
+              private val tickerTick = object : Runnable {
+                  override fun run() {
+                      refreshTicker()
+                      handler.postDelayed(this, 60_000L)
+                  }
+              }
               private var barLp: WindowManager.LayoutParams? = null
               private var haloLp: WindowManager.LayoutParams? = null
               private var notchLp: WindowManager.LayoutParams? = null
@@ -5038,6 +5048,8 @@ jobs:
                   val hl = makeLp(10, 10, false)
                   val nl = makeLp(10, 10, false)
                   val ml = makeLp(10, 10, false)
+                  val tl = makeLp(WindowManager.LayoutParams.MATCH_PARENT, (TickerCfg.height * d).toInt(), false)
+                  tickerLp = tl
                   maskLp = ml
                   lastOff = false
                   lastMaskShow = true
@@ -5050,6 +5062,8 @@ jobs:
                       wm.addView(bar, bl)
                       wm.addView(halo, hl)
                       wm.addView(notch, nl)
+                      ticker.visibility = View.GONE
+                      try { wm.addView(ticker, tl) } catch (e: Exception) { tickerLp = null }
                       added = true
                   } catch (e: Exception) {
                       added = false
@@ -5064,12 +5078,16 @@ jobs:
                   ContextCompat.registerReceiver(svc, receiver, f, ContextCompat.RECEIVER_NOT_EXPORTED)
                   apply()
                   engine.start()
+                  handler.removeCallbacks(tickerTick)
+                  handler.post(tickerTick)
               }
 
               fun stop() {
+                  handler.removeCallbacks(tickerTick)
                   engine.stop()
                   haloFxStop()
                   if (added) {
+                      try { wm.removeView(ticker) } catch (e: Exception) {}
                       try { wm.removeView(bar) } catch (e: Exception) {}
                       try { wm.removeView(halo) } catch (e: Exception) {}
                       try { wm.removeView(notch) } catch (e: Exception) {}
@@ -5209,8 +5227,56 @@ jobs:
                       mask.post { mask.invalidate() }
                   }
 
+                  applyTicker()
                   updateVisibility()
                   refresh()
+              }
+
+              /** Place la banderole de l'agenda sous la barre, sur toute la largeur de l'écran */
+              private fun applyTicker() {
+                  val tl = tickerLp ?: return
+                  val c = Store.cfg
+                  tl.width = WindowManager.LayoutParams.MATCH_PARENT
+                  tl.height = (TickerCfg.height * d).toInt()
+                  tl.x = 0
+                  tl.y = ((c.offY + c.height + TickerCfg.gap) * d).toInt().coerceAtLeast(0)
+                  try { wm.updateViewLayout(ticker, tl) } catch (e: Exception) {}
+                  refreshTicker()
+              }
+
+              /** Relit le calendrier (en arrière-plan) et met à jour le texte qui défile */
+              private fun refreshTicker() {
+                  if (!added || tickerLp == null) return
+                  if (!TickerCfg.on || !CalendarReader.granted(svc)) {
+                      tickerText = null
+                      showTicker()
+                      return
+                  }
+                  Thread {
+                      val t = CalendarReader.text(svc)
+                      handler.post {
+                          val shown = when {
+                              t == null -> null
+                              t.isEmpty() -> if (TickerCfg.hideEmpty) null else "Aucun événement aujourd'hui"
+                              else -> t
+                          }
+                          tickerText = shown
+                          ticker.configure(shown ?: "", TickerCfg.textColor, TickerCfg.bgColor, TickerCfg.size, TickerCfg.speed)
+                          showTicker()
+                      }
+                  }.start()
+              }
+
+              private fun showTicker() {
+                  if (!added) return
+                  val vis = TickerCfg.on && tickerAllowed && !tickerText.isNullOrEmpty()
+                  ticker.visibility = if (vis) View.VISIBLE else View.GONE
+              }
+
+              /** La banderole se cache quand le masque remplace la barre ou quand l'écran n'est pas allumé normalement */
+              private fun tickerShow(allowed: Boolean) {
+                  tickerAllowed = allowed
+                  showTicker()
               }
 
               fun refresh() {
@@ -5303,6 +5369,7 @@ jobs:
 
                   // écran éteint ou en veille (AOD) : on arrête les mesures pour ne pas consommer de batterie
                   if (off || st == Display.STATE_OFF || aod) engine.stop() else engine.start()
+                  tickerShow(!off && st == Display.STATE_ON)
               }
 
               /** Arrête l'effet de rallumage du halo et remet son aspect normal */
@@ -5836,7 +5903,7 @@ jobs:
               private lateinit var tabRow: LinearLayout
               private var tab = 0
               private val handler = Handler(Looper.getMainLooper())
-              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G", "🕳️ Masque")
+              private val tabNames = listOf("🎨 Forme", "🖌️ Style", "🎯 Objectif", "🧩 Infos", "⚙️ Options", "🌈 Couleurs", "📊 Historique 5G", "🕳️ Masque", "📅 Agenda")
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -5929,6 +5996,8 @@ jobs:
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults)
                   Weather.reset()
                   if (tab == 4) showTab(4)
+                  if (tab == 8) showTab(8)
+                  IslandAccessibilityService.instance?.reload()
               }
 
               private fun granted(p: String): Boolean = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
@@ -6152,6 +6221,7 @@ jobs:
                       5 -> scroll(tabColors())
                       6 -> scroll(tabHistory())
                       7 -> scroll(tabMask())
+                      8 -> scroll(tabTicker())
                       else -> scroll(tabOptions())
                   }
                   content.addView(v, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
@@ -6572,6 +6642,34 @@ jobs:
                   return b
               }
 
+              private fun tabTicker(): View {
+                  val b = ui.vbox()
+                  b.addView(ui.section("Banderole de l'agenda"))
+                  b.addView(ui.hint("Une ligne fine, sous la barre et sur toute la largeur de l'écran, qui fait défiler les événements du jour. Le texte reste fixe s'il tient en entier."))
+                  b.addView(statusLine(granted(Manifest.permission.READ_CALENDAR), "Accès au calendrier", "Autoriser") {
+                      requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR), 43)
+                  })
+                  b.addView(ui.toggle("Afficher la banderole", { TickerCfg.on }, { TickerCfg.on = it }))
+
+                  b.addView(ui.section("Contenu"))
+                  b.addView(ui.chips("Période", listOf("Aujourd'hui", "Aujourd'hui + demain"), { if (TickerCfg.tomorrow) 1 else 0 }, { TickerCfg.tomorrow = it == 1 }))
+                  b.addView(ui.toggle("Masquer les événements déjà terminés", { TickerCfg.hidePast }, { TickerCfg.hidePast = it }))
+                  b.addView(ui.toggle("Cacher la banderole s'il n'y a aucun événement", { TickerCfg.hideEmpty }, { TickerCfg.hideEmpty = it }))
+                  b.addView(ui.hint("📌 = toute la journée · ▶ = en cours. Le calendrier est relu chaque minute."))
+
+                  b.addView(ui.section("Taille et position"))
+                  b.addView(ui.slider("Hauteur de la ligne", 10, 40, { TickerCfg.height }, { TickerCfg.height = it }, " dp"))
+                  b.addView(ui.slider("Espace sous la barre", -20, 200, { TickerCfg.gap }, { TickerCfg.gap = it }, " dp"))
+                  b.addView(ui.slider("Taille du texte", 8, 24, { TickerCfg.size }, { TickerCfg.size = it }, " dp"))
+                  b.addView(ui.slider("Vitesse de défilement", 10, 200, { TickerCfg.speed }, { TickerCfg.speed = it }, " dp/s"))
+
+                  b.addView(ui.section("Couleurs"))
+                  b.addView(ui.colorRow("Texte", { TickerCfg.textColor }, { TickerCfg.textColor = it }))
+                  b.addView(ui.colorRow("Fond (transparent possible)", { TickerCfg.bgColor }, { TickerCfg.bgColor = it }))
+                  b.addView(ui.hint("La banderole est visible sur la vraie barre du téléphone (pas dans l'aperçu). Elle se cache quand le masque remplace la barre."))
+                  return b
+              }
+
               private fun tabOptions(): View {
                   val c = Store.cfg
                   val b = ui.vbox()
@@ -6866,6 +6964,259 @@ jobs:
               }
           }
           KOTLIN_EOF
+          cat > app/src/main/java/com/example/island/Ticker.kt <<'KOTLIN_EOF'
+          package com.example.island
+
+          import android.Manifest
+          import android.content.ContentUris
+          import android.content.Context
+          import android.content.pm.PackageManager
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
+          import android.graphics.RectF
+          import android.provider.CalendarContract
+          import android.view.View
+          import java.util.Calendar
+          import java.util.Date
+
+          /** Réglages de la banderole de l'agenda : rangés dans le JSON de la config (donc inclus dans « Copier ma config ») */
+          object TickerCfg {
+              private fun gi(k: String, d: Int): Int = Store.cfg.j.optInt(k, d)
+              private fun gb(k: String, d: Boolean): Boolean = Store.cfg.j.optBoolean(k, d)
+              private fun put(k: String, v: Any) {
+                  Store.cfg.j.put(k, v)
+                  Store.rev++
+              }
+
+              var on: Boolean
+                  get() = gb("tk_on", true)
+                  set(v) {
+                      put("tk_on", v)
+                  }
+
+              /** Hauteur de la ligne, en dp */
+              var height: Int
+                  get() = gi("tk_h", 18)
+                  set(v) {
+                      put("tk_h", v)
+                  }
+
+              /** Espace entre le bas de la barre et la banderole, en dp */
+              var gap: Int
+                  get() = gi("tk_gap", 2)
+                  set(v) {
+                      put("tk_gap", v)
+                  }
+
+              /** Taille du texte, en dp */
+              var size: Int
+                  get() = gi("tk_ts", 12)
+                  set(v) {
+                      put("tk_ts", v)
+                  }
+
+              /** Vitesse de défilement, en dp par seconde */
+              var speed: Int
+                  get() = gi("tk_sp", 45)
+                  set(v) {
+                      put("tk_sp", v)
+                  }
+
+              var textColor: Int
+                  get() = gi("tk_col", Pal.WHITE)
+                  set(v) {
+                      put("tk_col", v)
+                  }
+
+              var bgColor: Int
+                  get() = gi("tk_bg", 0xFF000000.toInt())
+                  set(v) {
+                      put("tk_bg", v)
+                  }
+
+              /** Masquer les événements déjà terminés */
+              var hidePast: Boolean
+                  get() = gb("tk_past", true)
+                  set(v) {
+                      put("tk_past", v)
+                  }
+
+              /** Ajouter les événements de demain */
+              var tomorrow: Boolean
+                  get() = gb("tk_tom", false)
+                  set(v) {
+                      put("tk_tom", v)
+                  }
+
+              /** Cacher la banderole quand il n'y a aucun événement */
+              var hideEmpty: Boolean
+                  get() = gb("tk_hide", true)
+                  set(v) {
+                      put("tk_hide", v)
+                  }
+          }
+
+          /** Lecture des événements du calendrier du téléphone (tous les agendas synchronisés : Samsung, Google…) */
+          object CalendarReader {
+              private class Ev(val title: String, val begin: Long, val end: Long, val allDay: Boolean, val sDay: Int, val eDay: Int)
+
+              fun granted(ctx: Context): Boolean =
+                  ctx.checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
+
+              private fun midnight(offsetDays: Int): Long {
+                  val c = Calendar.getInstance()
+                  c.set(Calendar.HOUR_OF_DAY, 0)
+                  c.set(Calendar.MINUTE, 0)
+                  c.set(Calendar.SECOND, 0)
+                  c.set(Calendar.MILLISECOND, 0)
+                  c.add(Calendar.DAY_OF_YEAR, offsetDays)
+                  return c.timeInMillis
+              }
+
+              /** Numéro de jour julien de l'instant donné, dans le fuseau du téléphone (même repère que les colonnes START_DAY / END_DAY) */
+              private fun julian(ms: Long): Int {
+                  val off = java.util.TimeZone.getDefault().getOffset(ms)
+                  return (Math.floorDiv(ms + off, 86400000L) + 2440588L).toInt()
+              }
+
+              private fun load(ctx: Context, from: Long, to: Long): List<Ev> {
+                  val out = ArrayList<Ev>()
+                  try {
+                      val ub = CalendarContract.Instances.CONTENT_URI.buildUpon()
+                      ContentUris.appendId(ub, from)
+                      ContentUris.appendId(ub, to)
+                      val proj = arrayOf(
+                          CalendarContract.Instances.TITLE,
+                          CalendarContract.Instances.BEGIN,
+                          CalendarContract.Instances.END,
+                          CalendarContract.Instances.ALL_DAY,
+                          CalendarContract.Instances.START_DAY,
+                          CalendarContract.Instances.END_DAY,
+                          CalendarContract.Instances.VISIBLE
+                      )
+                      val cur = ctx.contentResolver.query(ub.build(), proj, null, null, "begin ASC")
+                      if (cur != null) {
+                          cur.use {
+                              while (it.moveToNext()) {
+                                  if (it.getInt(6) == 0) continue
+                                  val t = it.getString(0)?.trim() ?: ""
+                                  out.add(Ev(if (t.isEmpty()) "(sans titre)" else t, it.getLong(1), it.getLong(2), it.getInt(3) == 1, it.getInt(4), it.getInt(5)))
+                              }
+                          }
+                      }
+                  } catch (e: Exception) {
+                  }
+                  return out
+              }
+
+              /** Texte à faire défiler : "" s'il n'y a aucun événement, null si l'accès au calendrier n'est pas autorisé */
+              fun text(ctx: Context): String? {
+                  if (!granted(ctx)) return null
+                  val now = System.currentTimeMillis()
+                  val days = if (TickerCfg.tomorrow) 2 else 1
+                  val all = load(ctx, midnight(0), midnight(days))
+                  val fmt = android.text.format.DateFormat.getTimeFormat(ctx)
+                  val used = HashSet<Int>()
+                  val parts = ArrayList<String>()
+                  for (day in 0 until days) {
+                      val ds = midnight(day)
+                      val de = midnight(day + 1)
+                      val jd = julian(ds + 12L * 3600000L)
+                      val dayParts = ArrayList<String>()
+                      // d'abord les événements sur toute la journée, puis ceux avec une heure
+                      for (pass in 0..1) {
+                          for ((i, e) in all.withIndex()) {
+                              if (used.contains(i)) continue
+                              if ((pass == 0) != e.allDay) continue
+                              if (e.allDay) {
+                                  if (e.sDay > jd || e.eDay < jd) continue
+                                  used.add(i)
+                                  dayParts.add("📌 " + e.title)
+                              } else {
+                                  if (e.begin >= de || e.end <= ds) continue
+                                  if (day == 0 && TickerCfg.hidePast && e.end <= now) continue
+                                  used.add(i)
+                                  val live = e.begin <= now && now < e.end
+                                  val hour = if (e.begin < ds) "…" else fmt.format(Date(e.begin))
+                                  dayParts.add((if (live) "▶ " else "") + hour + " " + e.title)
+                              }
+                          }
+                      }
+                      if (dayParts.isEmpty()) continue
+                      val joined = dayParts.joinToString("   •   ")
+                      parts.add(if (day == 0) "📅  " + joined else "Demain :  " + joined)
+                  }
+                  return parts.joinToString("      ◆      ")
+              }
+          }
+
+          /** Ligne fine pleine largeur qui fait défiler un texte en boucle ; texte fixe et centré s'il tient dans la ligne */
+          class TickerView(ctx: Context) : View(ctx) {
+              private val d = ctx.resources.displayMetrics.density
+              private val tp = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val bgp = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val rect = RectF()
+              private var text = ""
+              private var tw = 0f
+              private var off = 0f
+              private var last = 0L
+              private var speedPx = 45f * d
+              private val gap = 64f * d
+
+              fun configure(t: String, color: Int, bg: Int, sizeDp: Int, speedDp: Int) {
+                  tp.color = color
+                  tp.textSize = sizeDp * d
+                  bgp.color = bg
+                  speedPx = speedDp * d
+                  if (t != text) {
+                      text = t
+                      off = 0f
+                  }
+                  tw = tp.measureText(text)
+                  invalidate()
+              }
+
+              override fun onVisibilityChanged(changedView: View, visibility: Int) {
+                  super.onVisibilityChanged(changedView, visibility)
+                  last = 0L
+                  if (visibility == VISIBLE) invalidate()
+              }
+
+              override fun onAttachedToWindow() {
+                  super.onAttachedToWindow()
+                  last = 0L
+              }
+
+              override fun onDraw(c: Canvas) {
+                  val w = width.toFloat()
+                  val h = height.toFloat()
+                  if (Color.alpha(bgp.color) > 0) {
+                      rect.set(0f, 0f, w, h)
+                      c.drawRoundRect(rect, h / 2f, h / 2f, bgp)
+                  }
+                  if (text.isEmpty()) return
+                  val fm = tp.fontMetrics
+                  val base = h / 2f - (fm.ascent + fm.descent) / 2f
+                  if (tw <= w - 20f * d) {
+                      c.drawText(text, (w - tw) / 2f, base, tp)
+                      return
+                  }
+                  val now = System.nanoTime()
+                  if (last == 0L) last = now
+                  val dt = ((now - last) / 1_000_000_000f).coerceAtMost(0.1f)
+                  last = now
+                  val period = tw + gap
+                  off = (off + speedPx * dt) % period
+                  var x = w - off
+                  while (x + tw > 0f) {
+                      c.drawText(text, x, base, tp)
+                      x -= period
+                  }
+                  postInvalidateOnAnimation()
+              }
+          }
+          KOTLIN_EOF
           mkdir -p app
           cat > app/build.gradle.kts <<'KOTLIN_EOF'
           plugins {
@@ -6881,8 +7232,8 @@ jobs:
                   applicationId = "com.example.island"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 40
-                  versionName = "3.9.0"
+                  versionCode = 41
+                  versionName = "3.10.0"
               }
 
               compileOptions {
@@ -6910,6 +7261,7 @@ jobs:
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
               <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.READ_CALENDAR" />
 
               <application
                   android:allowBackup="true"
